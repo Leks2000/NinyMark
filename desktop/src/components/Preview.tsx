@@ -1,28 +1,52 @@
 /**
  * Preview — Before/After image preview with comparison toggle.
  * Rule R11: Before/after preview mandatory. Clickable for full-size.
+ * NEW: Manual placement overlay for single image mode.
  */
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Eye, EyeOff, ZoomIn, X, MapPin, Download } from "lucide-react";
+import { Eye, EyeOff, ZoomIn, X, MapPin, Download, Move, Crosshair } from "lucide-react";
 import type { ProcessedImage } from "@/types";
 
 interface PreviewProps {
   processedImages: ProcessedImage[];
   isProcessing: boolean;
   progress: number;
+  /** Called when user clicks to set manual watermark position (x%, y% as 0..1) */
+  onManualPlace?: (x: number, y: number) => void;
+  /** Whether manual placement mode is active */
+  isManualMode?: boolean;
 }
 
 export function Preview({
   processedImages,
   isProcessing,
   progress,
+  onManualPlace,
+  isManualMode = false,
 }: PreviewProps) {
   const [selectedImage, setSelectedImage] = useState<ProcessedImage | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
+  // Convert mouse event to normalised (0..1) coords relative to the image element
+  // MUST be before any early returns (Rules of Hooks)
+  const getRelativePos = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>): { x: number; y: number } | null => {
+      const img = imgRef.current;
+      if (!img) return null;
+      const rect = img.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      return { x, y };
+    },
+    []
+  );
+
+  // Early return AFTER all hooks
   if (processedImages.length === 0 && !isProcessing) {
     return null;
   }
@@ -79,7 +103,7 @@ export function Preview({
             </button>
           </div>
 
-          {/* Single image: Before/After side-by-side */}
+          {/* Single image: Before/After + manual placement overlay */}
           {isSingle && current && (
             <div className="card space-y-3">
               <div className="flex items-center justify-between">
@@ -112,32 +136,83 @@ export function Preview({
                 </div>
               </div>
 
+              {/* Manual placement hint */}
+              {isManualMode && onManualPlace && (
+                <div className="flex items-center gap-2 text-xs text-accent bg-accent/10 border border-accent/30 rounded-lg px-3 py-2">
+                  <Crosshair className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Click anywhere on the image to set watermark position</span>
+                </div>
+              )}
+
+              {/* Image with optional placement overlay */}
               <div
-                className="relative rounded-lg overflow-hidden bg-bg-hover cursor-zoom-in"
-                onClick={() =>
-                  setLightboxImage(
-                    showOriginal ? current.originalPreview : current.resultPreview
-                  )
-                }
+                className={`relative rounded-lg overflow-hidden bg-bg-hover ${isManualMode && onManualPlace
+                  ? "cursor-crosshair"
+                  : "cursor-zoom-in"
+                  }`}
+                onClick={(e) => {
+                  if (isManualMode && onManualPlace) {
+                    const pos = getRelativePos(e);
+                    if (pos) onManualPlace(pos.x, pos.y);
+                  } else {
+                    setLightboxImage(
+                      showOriginal ? current.originalPreview : current.resultPreview
+                    );
+                  }
+                }}
+                onMouseMove={(e) => {
+                  if (isManualMode && onManualPlace) {
+                    const pos = getRelativePos(e);
+                    setHoverPos(pos);
+                  }
+                }}
+                onMouseLeave={() => setHoverPos(null)}
               >
-                <AnimatePresence mode="wait">
-                  <motion.img
-                    key={showOriginal ? "original" : "result"}
-                    src={showOriginal ? current.originalPreview : current.resultPreview}
-                    alt={showOriginal ? "Original" : "Watermarked"}
-                    className="w-full max-h-[600px] object-contain"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                  />
-                </AnimatePresence>
+                {/* Plain img — no AnimatePresence to avoid framer-motion
+                    internal useCallback conflicting with React's hook count */}
+                <img
+                  ref={imgRef}
+                  key={showOriginal ? "original" : "result"}
+                  src={showOriginal ? current.originalPreview : current.resultPreview}
+                  alt={showOriginal ? "Original" : "Watermarked"}
+                  className="w-full max-h-[600px] object-contain select-none transition-opacity duration-200"
+                  draggable={false}
+                  style={{ opacity: 1 }}
+                />
+
+                {/* Hover crosshair in manual mode */}
+                {isManualMode && hoverPos && (
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      left: `${hoverPos.x * 100}%`,
+                      top: `${hoverPos.y * 100}%`,
+                      transform: "translate(-50%, -50%)",
+                    }}
+                  >
+                    <div className="relative">
+                      <div className="w-6 h-px bg-accent/80 absolute top-0 left-1/2 -translate-x-1/2" />
+                      <div className="h-6 w-px bg-accent/80 absolute left-0 top-1/2 -translate-y-1/2" />
+                      <div className="w-3 h-3 border-2 border-accent rounded-full bg-accent/20" />
+                    </div>
+                  </div>
+                )}
+
                 <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs">
                   {showOriginal ? "Original" : "Watermarked"}
                 </div>
-                <div className="absolute bottom-2 right-2 bg-black/60 p-1.5 rounded-full">
-                  <ZoomIn className="w-4 h-4" />
-                </div>
+
+                {!isManualMode && (
+                  <div className="absolute bottom-2 right-2 bg-black/60 p-1.5 rounded-full">
+                    <ZoomIn className="w-4 h-4" />
+                  </div>
+                )}
+
+                {isManualMode && (
+                  <div className="absolute bottom-2 right-2 bg-accent/80 p-1.5 rounded-full">
+                    <Move className="w-4 h-4" />
+                  </div>
+                )}
               </div>
             </div>
           )}

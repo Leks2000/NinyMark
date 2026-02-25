@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Keyboard } from "lucide-react";
+import { Sparkles, Keyboard, Crosshair } from "lucide-react";
 
 import { Header } from "@/components/Header";
 import { DropZone } from "@/components/DropZone";
@@ -37,6 +37,16 @@ export function App() {
     error,
     clearError,
   } = useWatermark();
+
+  // Manual placement mode — only relevant for single image
+  const [isManualMode, setIsManualMode] = useState(false);
+
+  const handleManualPlace = useCallback((x: number, y: number) => {
+    updateSettings({ manual_x: x, manual_y: y });
+    setIsManualMode(false);
+    // Re-process immediately with the new position
+    setTimeout(() => processAll(), 50);
+  }, [updateSettings, processAll]);
 
   // Health check polling
   useEffect(() => {
@@ -117,7 +127,7 @@ export function App() {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-center gap-4"
+              className="flex items-center justify-center gap-4 flex-wrap"
             >
               <button
                 onClick={processAll}
@@ -128,12 +138,32 @@ export function App() {
                 {isProcessing
                   ? `Processing... ${progress}%`
                   : images.length === 1
-                  ? "Apply Watermark"
-                  : `Process ${images.length} Images`}
+                    ? "Apply Watermark"
+                    : `Process ${images.length} Images`}
               </button>
+
+              {/* Manual placement toggle — only for single image */}
+              {images.length === 1 && processedImages.length > 0 && !isProcessing && (
+                <button
+                  onClick={() => setIsManualMode((m) => !m)}
+                  className={`text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg border transition-all ${isManualMode
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "btn-secondary"
+                    }`}
+                  title="Click on the image to manually place the watermark"
+                >
+                  <Crosshair className="w-4 h-4" />
+                  {isManualMode ? "Placing..." : "Place manually"}
+                </button>
+              )}
+
               {processedImages.length > 0 && !isProcessing && (
                 <button
-                  onClick={clearResults}
+                  onClick={() => {
+                    clearResults();
+                    setIsManualMode(false);
+                    updateSettings({ manual_x: null, manual_y: null });
+                  }}
                   className="btn-secondary text-sm"
                 >
                   Clear Results
@@ -166,6 +196,8 @@ export function App() {
             processedImages={processedImages}
             isProcessing={isProcessing}
             progress={progress}
+            isManualMode={isManualMode}
+            onManualPlace={handleManualPlace}
           />
         </div>
 

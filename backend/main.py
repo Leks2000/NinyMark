@@ -98,6 +98,11 @@ class SettingsPayload(BaseModel):
     padding: int = Field(default=20, ge=10, le=50)
     color: str = "light"
     custom_text: str = "patreon.com/Ninyra"
+    # Custom size: fraction of image width (0.03–0.40). Overrides size enum.
+    custom_size_pct: Optional[float] = Field(default=None, ge=0.03, le=0.40)
+    # Manual placement: fraction of image dimensions (0.0–1.0)
+    manual_x: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    manual_y: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
     def to_watermark_settings(self) -> WatermarkSettings:
         return WatermarkSettings(
@@ -107,6 +112,9 @@ class SettingsPayload(BaseModel):
             padding=self.padding,
             color=WatermarkColor(self.color),
             custom_text=self.custom_text,
+            custom_size_pct=self.custom_size_pct,
+            manual_x=self.manual_x,
+            manual_y=self.manual_y,
         )
 
 
@@ -180,10 +188,10 @@ _env_dist = os.environ.get("NINYRA_DIST_DIR")
 if _env_dist:
     DIST_DIR = Path(_env_dist)
 else:
-    # Fallback: search common locations
     _candidates = [
         Path(__file__).parent.parent / "desktop" / "dist",  # dev: desktop/dist
-        Path(__file__).parent.parent / "dist",               # web: dist at root
+        Path(__file__).parent.parent / "dist",               # web/packaged: dist next to resources/
+        Path(__file__).parent / "dist",                      # packaged: dist next to backend.exe
     ]
     DIST_DIR = next((p for p in _candidates if p.exists()), _candidates[0])
 

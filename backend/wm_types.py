@@ -47,12 +47,21 @@ class WatermarkSettings:
     padding: int = 20
     color: WatermarkColor = WatermarkColor.LIGHT
     custom_text: str = "patreon.com/Ninyra"
+    # Optional: override size with exact percentage (5–40% of image width)
+    custom_size_pct: float | None = None
+    # Optional: manual placement as fraction of image (0.0–1.0).
+    # When set, zone detection is skipped.
+    manual_x: float | None = None
+    manual_y: float | None = None
 
     def __post_init__(self) -> None:
         if not 0.3 <= self.opacity <= 1.0:
             object.__setattr__(self, "opacity", max(0.3, min(1.0, self.opacity)))
         if not 10 <= self.padding <= 50:
             object.__setattr__(self, "padding", max(10, min(50, self.padding)))
+        if self.custom_size_pct is not None:
+            clamped = max(0.03, min(0.40, self.custom_size_pct))
+            object.__setattr__(self, "custom_size_pct", clamped)
 
 
 @dataclass(frozen=True)

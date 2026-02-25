@@ -306,22 +306,19 @@ def apply_watermark(
     settings: WatermarkSettings,
 ) -> tuple[Image.Image, str, float, list[float]]:
     """
-    Apply watermark to a copy of the image using smart zone detection.
-
-    Args:
-        image: PIL Image to watermark (not modified).
-        settings: Watermark configuration.
-
-    Returns:
-        Tuple of (watermarked_image, zone_name, zone_score, all_scores).
+    Apply watermark to a copy of the image.
+    If settings.manual_x/y are set, skip zone detection and place there.
+    If settings.custom_size_pct is set, use it instead of the S/M/L enum.
     """
-    # Work on a copy — R4: never modify originals
     result_image = image.convert("RGBA")
     width, height = result_image.size
 
-    # Calculate target watermark width based on size setting
-    multiplier = SIZE_MULTIPLIERS[settings.size]
-    target_width = int(width * multiplier)
+    # Determine watermark width — custom slider overrides S/M/L
+    if settings.custom_size_pct is not None:
+        target_width = int(width * settings.custom_size_pct)
+    else:
+        multiplier = SIZE_MULTIPLIERS[settings.size]
+        target_width = int(width * multiplier)
 
     # Render watermark element
     renderer = STYLE_RENDERERS[settings.style]
@@ -335,31 +332,43 @@ def apply_watermark(
 
     wm_w, wm_h = wm_element.size
 
-    # Detect best zone
-    image_array = np.array(result_image)
-    zone_result = detect_best_zone(
-        image_array,
-        watermark_width=wm_w,
-        watermark_height=wm_h,
-        padding=settings.padding,
-    )
+    # Determine placement
+    if settings.manual_x is not None and settings.manual_y is not None:
+        # Manual placement — convert fraction to pixels, clamp to image bounds
+        px = int(settings.manual_x * width)
+        py = int(settings.manual_y * height)
+        # Clamp so watermark stays inside the image
+        px = max(0, min(px, width - wm_w))
+        py = max(0, min(py, height - wm_h))
+        zone_name = "manual"
+        zone_score = 1.0
+        all_scores: list[float] = []
+        logger.info("Manual placement: pos=(%d, %d)", px, py)
+    else:
+        # Smart zone detection
+        image_array = np.array(result_image)
+        zone_result = detect_best_zone(
+            image_array,
+            watermark_width=wm_w,
+            watermark_height=wm_h,
+            padding=settings.padding,
+        )
+        px, py = zone_result.x, zone_result.y
+        zone_name = zone_result.zone_name
+        zone_score = zone_result.score
+        all_scores = zone_result.all_scores
+        logger.info(
+            "Smart zone: zone=%s, score=%.2f, pos=(%d, %d)",
+            zone_name, zone_score, px, py,
+        )
 
-    # Paste watermark onto image
-    result_image.paste(wm_element, (zone_result.x, zone_result.y), wm_element)
+    # Paste watermark
+    result_image.paste(wm_element, (px, py), wm_element)
 
-    # Convert back to RGB if original had no alpha
     if image.mode != "RGBA":
         result_image = result_image.convert("RGB")
 
-    logger.info(
-        "Watermark applied: zone=%s, score=%.2f, pos=(%d, %d)",
-        zone_result.zone_name,
-        zone_result.score,
-        zone_result.x,
-        zone_result.y,
-    )
-
-    return result_image, zone_result.zone_name, zone_result.score, zone_result.all_scores
+    return result_image, zone_name, zone_score, all_scores
 
 
 def image_to_base64(image: Image.Image, fmt: str = "PNG") -> str:

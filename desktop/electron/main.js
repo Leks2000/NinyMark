@@ -36,6 +36,21 @@ let mainWindow = null;
 let backendPort = 8765;
 
 /**
+ * Kill any stale backend.exe processes left from a previous run.
+ * This prevents "port already in use" errors on Windows.
+ */
+function killStaleBackend() {
+    return new Promise((resolve) => {
+        if (process.platform !== "win32") return resolve();
+        const { exec } = require("child_process");
+        exec("taskkill /F /IM backend.exe /T", (err) => {
+            if (!err) log("INFO", "Killed stale backend.exe process(es)");
+            resolve(); // always resolve — OK if nothing was running
+        });
+    });
+}
+
+/**
  * Determine paths to backend resources.
  * In development: use ../backend/ relative to desktop/
  * In production (packaged): use resources/backend/ inside app
@@ -342,6 +357,9 @@ app.whenReady().then(async () => {
     const loadingWin = createLoadingWindow();
 
     try {
+        // Kill any leftover backend.exe from previous run
+        await killStaleBackend();
+
         // Start backend
         await startBackend();
 
