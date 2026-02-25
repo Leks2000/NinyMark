@@ -24,7 +24,7 @@ import numpy as np
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from backend.types import (
+from backend.wm_types import (
     WatermarkSettings,
     WatermarkStyle,
     WatermarkColor,

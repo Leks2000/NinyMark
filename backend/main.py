@@ -15,6 +15,7 @@ Rules:
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 import logging
 import sys
@@ -28,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from backend.types import (
+from backend.wm_types import (
     WatermarkSettings,
     WatermarkStyle,
     WatermarkSize,
@@ -173,8 +174,20 @@ executor = ThreadPoolExecutor(max_workers=4)
 
 # ---------------------------------------------------------------------------
 # Serve frontend static files from dist/
+# Supports NINYRA_DIST_DIR env var (set by backend_entry.py for packaged app)
 # ---------------------------------------------------------------------------
-DIST_DIR = Path(__file__).parent.parent / "dist"
+_env_dist = os.environ.get("NINYRA_DIST_DIR")
+if _env_dist:
+    DIST_DIR = Path(_env_dist)
+else:
+    # Fallback: search common locations
+    _candidates = [
+        Path(__file__).parent.parent / "desktop" / "dist",  # dev: desktop/dist
+        Path(__file__).parent.parent / "dist",               # web: dist at root
+    ]
+    DIST_DIR = next((p for p in _candidates if p.exists()), _candidates[0])
+
+logger.info("DIST_DIR resolved to: %s (exists=%s)", DIST_DIR, DIST_DIR.exists())
 
 
 @app.get("/health")

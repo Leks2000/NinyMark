@@ -16,7 +16,7 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
-from backend.types import ZoneResult, ZONE_NAMES
+from backend.wm_types import ZoneResult, ZONE_NAMES
 
 logger = logging.getLogger("ninyrawatermark.zone_detector")
 

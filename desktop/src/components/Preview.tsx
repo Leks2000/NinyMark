@@ -1,0 +1,266 @@
+/**
+ * Preview — Before/After image preview with comparison toggle.
+ * Rule R11: Before/after preview mandatory. Clickable for full-size.
+ */
+
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Eye, EyeOff, ZoomIn, X, MapPin, Download } from "lucide-react";
+import type { ProcessedImage } from "@/types";
+
+interface PreviewProps {
+  processedImages: ProcessedImage[];
+  isProcessing: boolean;
+  progress: number;
+}
+
+export function Preview({
+  processedImages,
+  isProcessing,
+  progress,
+}: PreviewProps) {
+  const [selectedImage, setSelectedImage] = useState<ProcessedImage | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  if (processedImages.length === 0 && !isProcessing) {
+    return null;
+  }
+
+  const handleDownload = (image: ProcessedImage) => {
+    const link = document.createElement("a");
+    link.href = image.resultPreview;
+    const ext = image.name.split(".").pop() || "png";
+    link.download = `watermarked_${image.name.replace(`.${ext}`, "")}.${ext}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDownloadAll = () => {
+    processedImages.forEach((img, idx) => {
+      setTimeout(() => handleDownload(img), idx * 200);
+    });
+  };
+
+  const isSingle = processedImages.length === 1;
+  const current = selectedImage || processedImages[0];
+
+  return (
+    <div className="space-y-4">
+      {/* Progress bar during processing */}
+      {isProcessing && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Processing...</span>
+            <span className="text-sm text-text-muted">{progress}%</span>
+          </div>
+          <div className="w-full h-2 bg-bg-hover rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-accent rounded-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
+        </div>
+      )}
+
+      {processedImages.length > 0 && (
+        <>
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold">
+              Results ({processedImages.length})
+            </h2>
+            <button onClick={handleDownloadAll} className="btn-primary text-sm flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              Download All
+            </button>
+          </div>
+
+          {/* Single image: Before/After side-by-side */}
+          {isSingle && current && (
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-accent" />
+                  <span className="text-sm text-text-secondary">
+                    Zone: <strong className="text-text-primary">{current.zoneUsed}</strong>
+                    {" "}(score: {current.zoneScore.toFixed(1)})
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowOriginal(!showOriginal)}
+                    className="btn-secondary text-xs flex items-center gap-1.5"
+                  >
+                    {showOriginal ? (
+                      <EyeOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )}
+                    {showOriginal ? "Show Result" : "Show Original"}
+                  </button>
+                  <button
+                    onClick={() => handleDownload(current)}
+                    className="btn-primary text-xs flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className="relative rounded-lg overflow-hidden bg-bg-hover cursor-zoom-in"
+                onClick={() =>
+                  setLightboxImage(
+                    showOriginal ? current.originalPreview : current.resultPreview
+                  )
+                }
+              >
+                <AnimatePresence mode="wait">
+                  <motion.img
+                    key={showOriginal ? "original" : "result"}
+                    src={showOriginal ? current.originalPreview : current.resultPreview}
+                    alt={showOriginal ? "Original" : "Watermarked"}
+                    className="w-full max-h-[600px] object-contain"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  />
+                </AnimatePresence>
+                <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs">
+                  {showOriginal ? "Original" : "Watermarked"}
+                </div>
+                <div className="absolute bottom-2 right-2 bg-black/60 p-1.5 rounded-full">
+                  <ZoomIn className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Batch: Grid thumbnails */}
+          {!isSingle && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {processedImages.map((img) => (
+                <motion.div
+                  key={img.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className={`
+                    card p-2 cursor-pointer transition-all
+                    ${current?.id === img.id ? "ring-2 ring-accent" : ""}
+                  `}
+                  onClick={() => {
+                    setSelectedImage(img);
+                    setShowOriginal(false);
+                  }}
+                >
+                  <div className="aspect-square rounded-lg overflow-hidden bg-bg-hover mb-2">
+                    <img
+                      src={img.resultPreview}
+                      alt={img.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs truncate flex-1 text-text-secondary">
+                      {img.name}
+                    </p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownload(img);
+                      }}
+                      className="ml-1 p-1 hover:bg-bg-hover rounded transition-colors"
+                      title="Download"
+                    >
+                      <Download className="w-3 h-3 text-text-muted" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    {img.zoneUsed} ({img.zoneScore.toFixed(1)})
+                  </p>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          {/* Batch selected detail */}
+          {!isSingle && current && (
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{current.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-muted">
+                    Zone: {current.zoneUsed} ({current.zoneScore.toFixed(1)})
+                  </span>
+                  <button
+                    onClick={() => setShowOriginal(!showOriginal)}
+                    className="btn-secondary text-xs flex items-center gap-1.5"
+                  >
+                    {showOriginal ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {showOriginal ? "Result" : "Original"}
+                  </button>
+                  <button
+                    onClick={() => handleDownload(current)}
+                    className="btn-primary text-xs"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+              <div
+                className="rounded-lg overflow-hidden bg-bg-hover cursor-zoom-in"
+                onClick={() =>
+                  setLightboxImage(
+                    showOriginal ? current.originalPreview : current.resultPreview
+                  )
+                }
+              >
+                <img
+                  src={showOriginal ? current.originalPreview : current.resultPreview}
+                  alt={current.name}
+                  className="w-full max-h-[500px] object-contain"
+                />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Lightbox */}
+      <AnimatePresence>
+        {lightboxImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+            onClick={() => setLightboxImage(null)}
+          >
+            <button
+              className="absolute top-4 right-4 bg-white/10 p-2 rounded-full hover:bg-white/20"
+              onClick={() => setLightboxImage(null)}
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <motion.img
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              src={lightboxImage}
+              alt="Full size preview"
+              className="max-w-full max-h-full object-contain rounded-lg"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
