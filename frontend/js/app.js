@@ -14,6 +14,12 @@
   let faceDetectEnabled = false;
   let showFacesEnabled = false;
 
+  // Expose state needed by preview.js for export/download
+  window.__ninyra = window.__ninyra || {};
+  window.__ninyra.getEmbedInvisible = () => embedInvisible;
+  window.__ninyra.getSettings = () => settings.getCurrent();
+  window.__ninyra.getUpload = () => upload;
+
   // ── Initialize all modules ────────────────────────────────────────────
   ui.init();
   settings.init(onSettingsChanged);
@@ -106,35 +112,49 @@
     const results = [];
 
     try {
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        const facesData = upload.getCachedFaces(img.id);
-        const faceBboxes = facesData ? facesData.faces : null;
-        const fontPath = currentSettings.font_path;
+      // Process images in parallel batches of 4 for speed
+      const BATCH_SIZE = 4;
+      let completed = 0;
 
-        const res = await api.preview(
-          img.base64,
-          currentSettings,
-          img.name,
-          faceBboxes,
-          fontPath,
-        );
+      for (let batchStart = 0; batchStart < images.length; batchStart += BATCH_SIZE) {
+        const batch = images.slice(batchStart, batchStart + BATCH_SIZE);
 
-        if (res.success) {
-          const mime = preview.getMimeForFilename(img.name);
-          results.push({
-            id: img.id,
-            name: img.name,
-            originalPreview: img.preview,
-            resultBase64: res.data.result,
-            resultPreview: `data:${mime};base64,${res.data.result}`,
-            zoneUsed: res.data.zone_used,
-            zoneScore: res.data.zone_score,
-          });
+        const batchPromises = batch.map(async (img) => {
+          const facesData = upload.getCachedFaces(img.id);
+          const faceBboxes = facesData ? facesData.faces : null;
+          const fontPath = currentSettings.font_path;
+
+          const res = await api.preview(
+            img.base64,
+            currentSettings,
+            img.name,
+            faceBboxes,
+            fontPath,
+          );
+
+          if (res.success) {
+            const mime = preview.getMimeForFilename(img.name);
+            return {
+              id: img.id,
+              name: img.name,
+              originalBase64: img.base64,
+              originalPreview: img.preview,
+              resultBase64: res.data.result,
+              resultPreview: `data:${mime};base64,${res.data.result}`,
+              zoneUsed: res.data.zone_used,
+              zoneScore: res.data.zone_score,
+            };
+          }
+          return null;
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+        for (const r of batchResults) {
+          if (r) results.push(r);
+          completed++;
+          const pct = Math.min(100, Math.round((completed / images.length) * 100));
+          preview.showProgress(pct);
         }
-
-        const pct = Math.min(100, Math.round(((i + 1) / images.length) * 100));
-        preview.showProgress(pct);
       }
 
       preview.hideProgress();

@@ -212,10 +212,56 @@ const preview = (() => {
       });
 
     document.querySelector('[data-action="download-all"]')
-      ?.addEventListener('click', () => {
-        processedImages.forEach((img, idx) => {
-          setTimeout(() => _downloadImage(img), idx * 200);
-        });
+      ?.addEventListener('click', async () => {
+        if (processedImages.length === 0) return;
+
+        // Use JSZip if available, otherwise fall back to sequential export
+        if (typeof JSZip === 'undefined') {
+          console.warn('JSZip not loaded — falling back to sequential download');
+          for (const img of processedImages) {
+            await _downloadImage(img);
+          }
+          return;
+        }
+
+        const btn = document.querySelector('[data-action="download-all"]');
+        const origText = btn ? btn.innerHTML : '';
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Exporting...`;
+        }
+
+        try {
+          const zip = new JSZip();
+
+          // Export in parallel batches of 4
+          const BATCH_SIZE = 4;
+          for (let i = 0; i < processedImages.length; i += BATCH_SIZE) {
+            const batch = processedImages.slice(i, i + BATCH_SIZE);
+            const batchResults = await Promise.all(
+              batch.map(img => _exportImageForZip(img))
+            );
+            for (const { fileName, base64 } of batchResults) {
+              zip.file(fileName, base64, { base64: true });
+            }
+          }
+
+          const blob = await zip.generateAsync({ type: 'blob' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = 'watermarked_images.zip';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(link.href);
+        } catch (err) {
+          ui.showToast('ZIP download failed: ' + (err.message || err), 'error');
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origText;
+          }
+        }
       });
 
     document.querySelector('[data-action="clear-results"]')
@@ -364,17 +410,89 @@ const preview = (() => {
   }
 
   /**
-   * Download a processed image.
+   * Export a single image via backend (with invisible watermark) then trigger download.
+   * Falls back to raw preview base64 if export fails.
    */
-  function _downloadImage(item) {
-    const link = document.createElement('a');
+  async function _downloadImage(item) {
     const ext = item.name.split('.').pop() || 'png';
     const baseName = item.name.substring(0, item.name.lastIndexOf('.')) || item.name;
-    link.href = item.resultPreview;
-    link.download = `watermarked_${baseName}.${ext}`;
+    const fileName = `watermarked_${baseName}.${ext}`;
+
+    let dataUrl = item.resultPreview;
+
+    // Use the backend /api/export endpoint so invisible watermark is embedded
+    try {
+      const ninyra = window.__ninyra || {};
+      const embedInvisible = ninyra.getEmbedInvisible ? ninyra.getEmbedInvisible() : true;
+      const currentSettings = ninyra.getSettings ? ninyra.getSettings() : {};
+      const uploadModule = ninyra.getUpload ? ninyra.getUpload() : null;
+      const facesData = uploadModule ? uploadModule.getCachedFaces(item.id) : null;
+      const faceBboxes = facesData ? facesData.faces : null;
+
+      const originalBase64 = item.originalBase64 || item.resultBase64;
+
+      const res = await api.exportImage(
+        originalBase64,
+        currentSettings,
+        item.name,
+        embedInvisible,
+        faceBboxes,
+        currentSettings.font_path,
+      );
+
+      if (res.success && res.data && res.data.result) {
+        const mime = getMimeForFilename(item.name);
+        dataUrl = `data:${mime};base64,${res.data.result}`;
+      }
+    } catch (err) {
+      console.warn('Export API failed, falling back to preview data:', err);
+    }
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  /**
+   * Export a single image and return its base64 result (for ZIP bundling).
+   * Returns { fileName, base64 }.
+   */
+  async function _exportImageForZip(item) {
+    const ext = item.name.split('.').pop() || 'png';
+    const baseName = item.name.substring(0, item.name.lastIndexOf('.')) || item.name;
+    const fileName = `watermarked_${baseName}.${ext}`;
+
+    try {
+      const ninyra = window.__ninyra || {};
+      const embedInvisible = ninyra.getEmbedInvisible ? ninyra.getEmbedInvisible() : true;
+      const currentSettings = ninyra.getSettings ? ninyra.getSettings() : {};
+      const uploadModule = ninyra.getUpload ? ninyra.getUpload() : null;
+      const facesData = uploadModule ? uploadModule.getCachedFaces(item.id) : null;
+      const faceBboxes = facesData ? facesData.faces : null;
+
+      const originalBase64 = item.originalBase64 || item.resultBase64;
+
+      const res = await api.exportImage(
+        originalBase64,
+        currentSettings,
+        item.name,
+        embedInvisible,
+        faceBboxes,
+        currentSettings.font_path,
+      );
+
+      if (res.success && res.data && res.data.result) {
+        return { fileName, base64: res.data.result };
+      }
+    } catch (err) {
+      console.warn('Export failed for', item.name, '- using preview data:', err);
+    }
+
+    // Fallback: use preview base64
+    return { fileName, base64: item.resultBase64 };
   }
 
   /**

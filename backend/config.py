@@ -23,7 +23,68 @@ LOGS_DIR: Path = APP_DIR / "logs"
 CONFIG_FILE: Path = APP_DIR / "config.json"
 PRESETS_FILE: Path = APP_DIR / "presets.json"
 ASSETS_DIR: Path = Path(__file__).parent.parent / "assets"
-PATREON_ICON_PATH: Path = ASSETS_DIR / "patreon_icon.png"
+_PATREON_SVG_PATH: Path = ASSETS_DIR / "patreon_icon.svg"
+_PATREON_PNG_PATH: Path = ASSETS_DIR / "patreon_icon.png"
+
+
+def _ensure_patreon_png() -> Path:
+    """Convert patreon_icon.svg to PNG if the PNG is missing.
+
+    Uses cairosvg when available, otherwise rasterises the simple SVG
+    geometry directly with Pillow so the build works without cairosvg.
+    Returns the path to whichever file is usable.
+    """
+    if _PATREON_PNG_PATH.exists():
+        return _PATREON_PNG_PATH
+
+    if not _PATREON_SVG_PATH.exists():
+        return _PATREON_PNG_PATH  # fallback icon will be generated later
+
+    # Try cairosvg first (best quality)
+    try:
+        import cairosvg  # type: ignore[import-untyped]
+        cairosvg.svg2png(
+            url=str(_PATREON_SVG_PATH),
+            write_to=str(_PATREON_PNG_PATH),
+            output_width=256,
+            output_height=256,
+        )
+        logger.info("Converted patreon SVG -> PNG via cairosvg")
+        return _PATREON_PNG_PATH
+    except Exception:
+        pass
+
+    # Fallback: rasterise the known SVG shapes with Pillow
+    try:
+        from PIL import Image, ImageDraw  # type: ignore[import-untyped]
+
+        size = 256
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # Patreon logo: circle + rectangle (matches the SVG)
+        scale = size / 64.0
+        # Circle: cx=38, cy=20, r=14
+        cx, cy, r = 38 * scale, 20 * scale, 14 * scale
+        draw.ellipse(
+            [cx - r, cy - r, cx + r, cy + r],
+            fill=(255, 66, 77, 255),
+        )
+        # Rect: x=4, y=4, width=12, height=56, rx=4
+        rx = 4 * scale
+        x1, y1 = 4 * scale, 4 * scale
+        x2, y2 = (4 + 12) * scale, (4 + 56) * scale
+        draw.rounded_rectangle([x1, y1, x2, y2], radius=rx, fill=(255, 66, 77, 255))
+
+        img.save(str(_PATREON_PNG_PATH), "PNG")
+        logger.info("Converted patreon SVG -> PNG via Pillow rasterisation")
+        return _PATREON_PNG_PATH
+    except Exception as exc:
+        logger.warning("Failed to convert patreon SVG to PNG: %s", exc)
+        return _PATREON_SVG_PATH  # watermark.py will try Image.open on SVG
+
+
+PATREON_ICON_PATH: Path = _ensure_patreon_png()
 
 # ---------------------------------------------------------------------------
 # Ensure directories exist on import
