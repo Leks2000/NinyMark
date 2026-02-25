@@ -1,5 +1,5 @@
 /**
- * DropZone — Drag & drop + file picker component.
+ * DropZone -- Drag & drop + file picker component.
  * Rule R10: Visual highlight on drag, accept only PNG/JPG/JPEG/WEBP.
  */
 
@@ -54,8 +54,8 @@ export function DropZone({
 
   return (
     <div className="space-y-4">
-      {/* Drop area */}
-      <motion.div
+      {/* Drop area — use a plain div for dropzone to avoid Framer Motion type conflict */}
+      <div
         {...getRootProps()}
         className={`
           relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
@@ -66,8 +66,6 @@ export function DropZone({
           }
           ${disabled ? "opacity-50 cursor-not-allowed" : ""}
         `}
-        whileHover={disabled ? {} : { scale: 1.01 }}
-        whileTap={disabled ? {} : { scale: 0.99 }}
       >
         <input {...getInputProps()} />
         <AnimatePresence mode="wait">
@@ -98,13 +96,13 @@ export function DropZone({
                   Drag & drop images here
                 </p>
                 <p className="text-sm text-text-muted mt-1">
-                  or click to browse — PNG, JPG, WEBP (up to 100 files)
+                  or click to browse -- PNG, JPG, WEBP (up to 100 files)
                 </p>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.div>
+      </div>
 
       {/* Error message */}
       <AnimatePresence>

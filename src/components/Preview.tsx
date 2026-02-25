@@ -1,5 +1,5 @@
 /**
- * Preview — Before/After image preview with comparison toggle.
+ * Preview -- Before/After image preview with comparison toggle.
  * Rule R11: Before/after preview mandatory. Clickable for full-size.
  */
 
@@ -12,6 +12,20 @@ interface PreviewProps {
   processedImages: ProcessedImage[];
   isProcessing: boolean;
   progress: number;
+}
+
+/**
+ * Build a safe download filename from the original name.
+ * Handles files with multiple dots (e.g., "image.v2.png") correctly.
+ */
+function buildDownloadName(originalName: string): string {
+  const lastDot = originalName.lastIndexOf(".");
+  if (lastDot === -1) {
+    return `watermarked_${originalName}.png`;
+  }
+  const baseName = originalName.substring(0, lastDot);
+  const ext = originalName.substring(lastDot);
+  return `watermarked_${baseName}${ext}`;
 }
 
 export function Preview({
@@ -30,8 +44,7 @@ export function Preview({
   const handleDownload = (image: ProcessedImage) => {
     const link = document.createElement("a");
     link.href = image.resultPreview;
-    const ext = image.name.split(".").pop() || "png";
-    link.download = `watermarked_${image.name.replace(`.${ext}`, "")}.${ext}`;
+    link.download = buildDownloadName(image.name);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

@@ -1,5 +1,5 @@
 /**
- * DropZone — Drag & drop + file picker component.
+ * DropZone -- Drag & drop + file picker component.
  * Rule R10: Visual highlight on drag, accept only PNG/JPG/JPEG/WEBP.
  */
 
@@ -54,60 +54,55 @@ export function DropZone({
 
   return (
     <div className="space-y-4">
-      {/* Drop area */}
-      <motion.div
-        whileHover={disabled ? {} : { scale: 1.01 }}
-        whileTap={disabled ? {} : { scale: 0.99 }}
+      {/* Drop area — use a plain div for dropzone to avoid Framer Motion type conflict */}
+      <div
+        {...getRootProps()}
+        className={`
+          relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
+          transition-all duration-300 min-h-[200px] flex flex-col items-center justify-center
+          ${isDragActive
+            ? "border-accent bg-accent/10 scale-[1.02]"
+            : "border-bg-hover hover:border-text-muted hover:bg-bg-card/50"
+          }
+          ${disabled ? "opacity-50 cursor-not-allowed" : ""}
+        `}
       >
-        <div
-          {...getRootProps()}
-          className={`
-            relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
-            transition-all duration-300 min-h-[200px] flex flex-col items-center justify-center
-            ${isDragActive
-              ? "border-accent bg-accent/10 scale-[1.02]"
-              : "border-bg-hover hover:border-text-muted hover:bg-bg-card/50"
-            }
-            ${disabled ? "opacity-50 cursor-not-allowed" : ""}
-          `}
-        >
-          <input {...getInputProps()} />
-          <AnimatePresence mode="wait">
-            {isDragActive ? (
-              <motion.div
-                key="dragging"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-3"
-              >
-                <ImagePlus className="w-12 h-12 text-accent" />
-                <p className="text-lg font-semibold text-accent">
-                  Drop images here
+        <input {...getInputProps()} />
+        <AnimatePresence mode="wait">
+          {isDragActive ? (
+            <motion.div
+              key="dragging"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center gap-3"
+            >
+              <ImagePlus className="w-12 h-12 text-accent" />
+              <p className="text-lg font-semibold text-accent">
+                Drop images here
+              </p>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="idle"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center gap-3"
+            >
+              <Upload className="w-10 h-10 text-text-muted" />
+              <div>
+                <p className="text-lg font-medium">
+                  Drag & drop images here
                 </p>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="idle"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-3"
-              >
-                <Upload className="w-10 h-10 text-text-muted" />
-                <div>
-                  <p className="text-lg font-medium">
-                    Drag &amp; drop images here
-                  </p>
-                  <p className="text-sm text-text-muted mt-1">
-                    or click to browse — PNG, JPG, WEBP (up to 100 files)
-                  </p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </motion.div>
+                <p className="text-sm text-text-muted mt-1">
+                  or click to browse -- PNG, JPG, WEBP (up to 100 files)
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Error message */}
       <AnimatePresence>

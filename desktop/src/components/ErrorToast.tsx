@@ -1,7 +1,8 @@
 /**
- * ErrorToast — Error notification component.
+ * ErrorToast -- Error notification component.
  */
 
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, X } from "lucide-react";
 
@@ -11,14 +12,21 @@ interface ErrorToastProps {
 }
 
 export function ErrorToast({ message, onDismiss }: ErrorToastProps) {
+  // Auto-dismiss after 8 seconds
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(onDismiss, 8000);
+    return () => clearTimeout(timer);
+  }, [message, onDismiss]);
+
   return (
     <AnimatePresence>
       {message && (
         <motion.div
-          initial={{ opacity: 0, y: 20, x: "-50%" }}
-          animate={{ opacity: 1, y: 0, x: "-50%" }}
-          exit={{ opacity: 0, y: 20, x: "-50%" }}
-          className="fixed bottom-6 left-1/2 z-40 max-w-lg w-full mx-auto"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-lg w-[calc(100%-2rem)]"
         >
           <div className="bg-red-500/15 border border-red-500/30 backdrop-blur-sm
                           rounded-xl px-4 py-3 flex items-start gap-3 shadow-xl">

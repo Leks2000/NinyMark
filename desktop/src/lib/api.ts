@@ -1,9 +1,7 @@
 /**
  * API client for NinyraWatermark backend.
- * Handles:
- * - Electron mode: app loaded from http://127.0.0.1:{port} — same origin, no prefix
- * - Dev mode: routes proxied directly via vite.config.ts
- * - Sandbox proxy environments
+ * Uses /api proxy in dev, or detects the backend URL from the current hostname
+ * when accessed through a sandbox/proxy environment.
  */
 
 import type {
@@ -13,40 +11,36 @@ import type {
   PresetsMap,
 } from "@/types";
 
-// Electron preload exposes window.electronAPI (see electron/preload.js)
-declare global {
-  interface Window {
-    electronAPI?: {
-      getBackendPort: () => Promise<number>;
-      getAppVersion: () => Promise<string>;
-      openLogFile: () => Promise<void>;
-      isElectron: boolean;
-    };
-  }
-}
-
-// Backend ports range (R15 — fallback ports 8765..8769)
-const BACKEND_PORTS = [8765, 8766, 8767, 8768, 8769];
-
 function detectApiBase(): string {
-  const { hostname, port, protocol } = window.location;
+  const { hostname, protocol, port } = window.location;
 
-  // Electron / Python backend serving: identical port → use same origin (no prefix)
-  if (BACKEND_PORTS.includes(Number(port))) {
+  // If served from the backend itself (same origin), no prefix needed
+  if (port === "8765" || hostname.includes("8765")) {
     return "";
   }
 
-  // Sandbox/cloud dev environment proxy detection
-  if (hostname.includes("-") && hostname.includes("sandbox")) {
+  // If we're in a sandbox/proxy environment, replace the port prefix
+  // Pattern: "<port>-<sandbox-id>.<domain>" -> "8765-<sandbox-id>.<domain>"
+  if (
+    hostname.match(/^\d+-/) &&
+    (hostname.includes("sandbox") || hostname.includes(".dev"))
+  ) {
     const backendHost = hostname.replace(/^\d+-/, "8765-");
     return `${protocol}//${backendHost}`;
   }
 
-  // Local Vite dev — routes proxied via vite.config.ts
-  return "";
+  // Local development or deployed with reverse proxy: use the Vite proxy
+  return "/api";
 }
 
-const API_BASE = detectApiBase();
+let _apiBase: string | null = null;
+
+function getApiBase(): string {
+  if (_apiBase === null) {
+    _apiBase = detectApiBase();
+  }
+  return _apiBase;
+}
 
 class ApiError extends Error {
   status: number;
@@ -61,7 +55,8 @@ async function apiRequest<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
+  const base = getApiBase();
+  const url = `${base}${endpoint}`;
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -70,8 +65,11 @@ async function apiRequest<T>(
   if (!response.ok) {
     let detail = "Unknown error";
     try {
-      const errBody = await response.json();
-      detail = errBody.detail || JSON.stringify(errBody);
+      const errBody: Record<string, unknown> = await response.json();
+      detail =
+        typeof errBody.detail === "string"
+          ? errBody.detail
+          : JSON.stringify(errBody);
     } catch {
       detail = response.statusText;
     }

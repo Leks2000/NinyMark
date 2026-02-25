@@ -1,5 +1,5 @@
 /**
- * useWatermark — Core hook for watermark processing state management.
+ * useWatermark -- Core hook for watermark processing state management.
  * Manages settings, image list, processing, and results.
  */
 
@@ -45,6 +45,22 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+/**
+ * Determine the correct MIME type for a base64 preview URL based on filename.
+ */
+function getMimeForFilename(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    default:
+      return "image/png";
+  }
+}
+
 export function useWatermark(): UseWatermarkReturn {
   const [settings, setSettings] = useState<WatermarkSettings>(DEFAULT_SETTINGS);
   const [images, setImages] = useState<ImageFile[]>([]);
@@ -53,6 +69,10 @@ export function useWatermark(): UseWatermarkReturn {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
+
+  // Use a ref to track images for cleanup, avoiding stale closure in clearImages
+  const imagesRef = useRef<ImageFile[]>([]);
+  imagesRef.current = images;
 
   const updateSettings = useCallback(
     (partial: Partial<WatermarkSettings>) => {
@@ -91,6 +111,8 @@ export function useWatermark(): UseWatermarkReturn {
       const total = prev.length + newImages.length;
       if (total > 100) {
         setError("Maximum 100 files allowed per batch.");
+        // Revoke preview URLs for images we won't add
+        newImages.forEach((img) => URL.revokeObjectURL(img.preview));
         return prev;
       }
       return [...prev, ...newImages];
@@ -107,11 +129,12 @@ export function useWatermark(): UseWatermarkReturn {
   }, []);
 
   const clearImages = useCallback(() => {
-    images.forEach((img) => URL.revokeObjectURL(img.preview));
+    // Use ref to avoid stale closure -- always gets latest images
+    imagesRef.current.forEach((img) => URL.revokeObjectURL(img.preview));
     setImages([]);
     setProcessedImages([]);
     setProgress(0);
-  }, [images]);
+  }, []);
 
   const clearResults = useCallback(() => {
     setProcessedImages([]);
@@ -139,13 +162,14 @@ export function useWatermark(): UseWatermarkReturn {
         const response = await processSingle(img.base64, settings, img.name);
         if (abortRef.current) return;
 
+        const mime = getMimeForFilename(img.name);
         setProcessedImages([
           {
             id: img.id,
             name: img.name,
             originalPreview: img.preview,
             resultBase64: response.result,
-            resultPreview: `data:image/png;base64,${response.result}`,
+            resultPreview: `data:${mime};base64,${response.result}`,
             zoneUsed: response.zone_used,
             zoneScore: response.zone_score,
           },
@@ -170,12 +194,13 @@ export function useWatermark(): UseWatermarkReturn {
           for (let j = 0; j < response.results.length; j++) {
             const res = response.results[j];
             const original = chunk[j];
+            const mime = getMimeForFilename(res.name);
             results.push({
               id: original.id,
               name: res.name,
               originalPreview: original.preview,
               resultBase64: res.data,
-              resultPreview: `data:image/png;base64,${res.data}`,
+              resultPreview: `data:${mime};base64,${res.data}`,
               zoneUsed: res.zone_used,
               zoneScore: res.zone_score,
             });

@@ -127,6 +127,8 @@ export function App() {
                 <Sparkles className="w-5 h-5" />
                 {isProcessing
                   ? `Processing... ${progress}%`
+                  : !backendOnline
+                  ? "Backend Offline"
                   : images.length === 1
                   ? "Apply Watermark"
                   : `Process ${images.length} Images`}

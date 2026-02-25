@@ -13,20 +13,34 @@ import type {
 
 function detectApiBase(): string {
   const { hostname, protocol, port } = window.location;
+
   // If served from the backend itself (same origin), no prefix needed
   if (port === "8765" || hostname.includes("8765")) {
     return "";
   }
-  // If we're in a sandbox proxy, replace the port prefix in the hostname
-  if (hostname.includes("-") && hostname.includes("sandbox")) {
+
+  // If we're in a sandbox/proxy environment, replace the port prefix
+  // Pattern: "<port>-<sandbox-id>.<domain>" -> "8765-<sandbox-id>.<domain>"
+  if (
+    hostname.match(/^\d+-/) &&
+    (hostname.includes("sandbox") || hostname.includes(".dev"))
+  ) {
     const backendHost = hostname.replace(/^\d+-/, "8765-");
     return `${protocol}//${backendHost}`;
   }
-  // Local development: use the Vite proxy
+
+  // Local development or deployed with reverse proxy: use the Vite proxy
   return "/api";
 }
 
-const API_BASE = detectApiBase();
+let _apiBase: string | null = null;
+
+function getApiBase(): string {
+  if (_apiBase === null) {
+    _apiBase = detectApiBase();
+  }
+  return _apiBase;
+}
 
 class ApiError extends Error {
   status: number;
@@ -41,7 +55,8 @@ async function apiRequest<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
+  const base = getApiBase();
+  const url = `${base}${endpoint}`;
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -50,8 +65,11 @@ async function apiRequest<T>(
   if (!response.ok) {
     let detail = "Unknown error";
     try {
-      const errBody = await response.json();
-      detail = errBody.detail || JSON.stringify(errBody);
+      const errBody: Record<string, unknown> = await response.json();
+      detail =
+        typeof errBody.detail === "string"
+          ? errBody.detail
+          : JSON.stringify(errBody);
     } catch {
       detail = response.statusText;
     }
