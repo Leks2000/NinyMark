@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NinyraWatermark — Smart Watermark Tool</title>
+  <link rel="icon" type="image/svg+xml" href="/patreon_icon.svg" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header__brand">
+      <div class="header__logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="14" cy="7.5" r="5" fill="white"/>
+          <rect x="2" y="2" width="4" height="20" rx="1.5" fill="white"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="header__title">Ninyra<span class="header__accent">Watermark</span></h1>
+        <p class="header__subtitle">Smart watermark placement tool</p>
+      </div>
+    </div>
+    <div class="header__status">
+      <div class="header__toolbar">
+        <button class="toolbar-btn" data-action="undo" disabled title="Undo (Ctrl+Z)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+        <button class="toolbar-btn" data-action="redo" disabled title="Redo (Ctrl+Y)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+        </button>
+      </div>
+      <div class="status-dot" data-target="status-dot"></div>
+      <span class="header__status-text" data-target="status-text">Checking...</span>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <main class="main-layout">
+    <!-- Left: content area -->
+    <div class="content-area">
+      <!-- Drop zone -->
+      <div class="dropzone" data-target="dropzone">
+        <input type="file" data-target="file-input" accept=".png,.jpg,.jpeg,.webp" multiple hidden />
+        <div class="dropzone__content" data-target="dropzone-content">
+          <svg class="dropzone__icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p class="dropzone__title">Drag &amp; drop images here</p>
+          <p class="dropzone__subtitle">or click to browse — PNG, JPG, WEBP (up to 100 files)</p>
+        </div>
+      </div>
+
+      <!-- Image thumbnails -->
+      <div class="thumbnails" data-target="thumbnails" hidden>
+        <div class="thumbnails__header">
+          <span class="thumbnails__count" data-target="thumbnails-count"></span>
+          <button class="btn-text btn-text--danger" data-action="clear-images">Clear all</button>
+        </div>
+        <div class="thumbnails__grid" data-target="thumbnails-grid"></div>
+      </div>
+
+      <!-- Process button -->
+      <div class="process-bar" data-target="process-bar" hidden>
+        <button class="btn-primary btn-primary--lg" data-action="process">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 13l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3z"/></svg>
+          <span data-target="process-btn-text">Apply Watermark</span>
+        </button>
+        <button class="btn-secondary" data-action="clear-results" hidden>Clear Results</button>
+      </div>
+
+      <!-- Backend offline warning -->
+      <div class="warning-banner" data-target="offline-warning" hidden>
+        <p class="warning-banner__title">Backend is offline</p>
+        <p class="warning-banner__text">Start the Python backend: <code>python backend/app.py</code></p>
+      </div>
+
+      <!-- Preview area -->
+      <div class="preview-area" data-target="preview-area" hidden>
+        <!-- Progress bar -->
+        <div class="progress-card" data-target="progress-card" hidden>
+          <div class="progress-card__header">
+            <span>Processing...</span>
+            <span data-target="progress-text">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-bar__fill" data-target="progress-fill"></div>
+          </div>
+        </div>
+
+        <!-- Results header -->
+        <div class="results-header" data-target="results-header" hidden>
+          <h2 class="results-header__title" data-target="results-title">Results</h2>
+          <button class="btn-primary btn-primary--sm" data-action="download-all">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download All
+          </button>
+        </div>
+
+        <!-- Single preview with drag overlay -->
+        <div class="single-preview" data-target="single-preview" hidden>
+          <div class="single-preview__toolbar">
+            <div class="single-preview__zone-info">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              <span data-target="zone-info"></span>
+            </div>
+            <div class="single-preview__actions">
+              <button class="btn-secondary btn-secondary--sm" data-action="toggle-original">Show Original</button>
+              <button class="btn-primary btn-primary--sm" data-action="download-current">Save</button>
+            </div>
+          </div>
+          <div class="preview-image-container" data-target="preview-container">
+            <img data-target="preview-image" alt="Preview" class="preview-image" />
+            <!-- Drag overlay for watermark repositioning -->
+            <div class="drag-overlay" data-target="drag-overlay" hidden>
+              <div class="drag-handle" data-target="drag-handle">
+                <div class="drag-handle__tooltip" data-target="drag-tooltip">0%, 0%</div>
+              </div>
+              <!-- Visual guides -->
+              <div class="drag-guide drag-guide--h" data-target="drag-guide-h"></div>
+              <div class="drag-guide drag-guide--v" data-target="drag-guide-v"></div>
+              <!-- Face exclusion zones -->
+              <div class="face-zones" data-target="face-zones"></div>
+            </div>
+            <div class="preview-label" data-target="preview-label">Watermarked</div>
+            <div class="preview-zoom">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Batch grid -->
+        <div class="batch-grid" data-target="batch-grid" hidden></div>
+      </div>
+    </div>
+
+    <!-- Right: settings sidebar -->
+    <aside class="sidebar">
+      <div class="card settings-card">
+        <div class="settings-card__header">
+          <h2 class="settings-card__title">Settings</h2>
+          <button class="btn-text" data-action="reset-settings" title="Reset to defaults">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            Reset
+          </button>
+        </div>
+
+        <!-- Watermark Style -->
+        <div class="setting-group">
+          <label class="setting-label">Watermark Style</label>
+          <div class="style-options" data-target="style-options">
+            <button class="style-option style-option--active" data-style="branded_block">
+              <span class="style-option__name">Branded Block</span>
+              <span class="style-option__desc">Frosted glass card with icon &amp; text</span>
+            </button>
+            <button class="style-option" data-style="icon_text">
+              <span class="style-option__name">Icon + Text</span>
+              <span class="style-option__desc">Patreon icon alongside text</span>
+            </button>
+            <button class="style-option" data-style="text">
+              <span class="style-option__name">Text Only</span>
+              <span class="style-option__desc">Clean text with drop shadow</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Opacity -->
+        <div class="setting-group">
+          <div class="setting-group__header">
+            <label class="setting-label">Opacity</label>
+            <span class="setting-value" data-target="opacity-value">75%</span>
+          </div>
+          <input type="range" class="range-input" data-setting="opacity" min="30" max="100" value="75" />
+          <div class="range-labels"><span>30%</span><span>100%</span></div>
+        </div>
+
+        <!-- Size presets + custom slider -->
+        <div class="setting-group">
+          <label class="setting-label">Size</label>
+          <div class="size-buttons" data-target="size-buttons">
+            <button class="size-btn" data-size="S">Small (8%)</button>
+            <button class="size-btn size-btn--active" data-size="M">Medium (12%)</button>
+            <button class="size-btn" data-size="L">Large (18%)</button>
+          </div>
+          <div class="custom-size">
+            <div class="custom-size__header">
+              <span class="setting-sublabel">Custom size</span>
+              <span class="setting-value" data-target="custom-size-value">off</span>
+            </div>
+            <input type="range" class="range-input" data-setting="custom_size_pct" min="3" max="40" value="12" />
+            <div class="range-labels"><span>3%</span><span>40%</span></div>
+          </div>
+        </div>
+
+        <!-- Padding -->
+        <div class="setting-group">
+          <div class="setting-group__header">
+            <label class="setting-label">Edge Padding</label>
+            <span class="setting-value" data-target="padding-value">20px</span>
+          </div>
+          <input type="range" class="range-input" data-setting="padding" min="10" max="50" value="20" />
+        </div>
+
+        <!-- Color Theme -->
+        <div class="setting-group">
+          <label class="setting-label">Color Theme</label>
+          <div class="color-buttons" data-target="color-buttons">
+            <button class="color-btn color-btn--active" data-color="light">Light</button>
+            <button class="color-btn" data-color="dark">Dark</button>
+          </div>
+        </div>
+
+        <!-- Watermark Text -->
+        <div class="setting-group">
+          <label class="setting-label">Watermark Text</label>
+          <input type="text" class="input-field" data-setting="custom_text" value="patreon.com/Ninyra" placeholder="patreon.com/Ninyra" />
+        </div>
+
+        <!-- Font selector -->
+        <div class="setting-group">
+          <div class="setting-group__header">
+            <label class="setting-label">Font</label>
+            <button class="btn-text btn-text--accent" data-action="upload-font">Upload Font</button>
+          </div>
+          <select class="input-field" data-target="font-selector" data-setting="font_path">
+            <option value="">System Default</option>
+          </select>
+          <input type="file" data-target="font-file-input" accept=".ttf,.otf" hidden />
+        </div>
+
+        <!-- Drag-and-drop toggle -->
+        <div class="setting-group">
+          <div class="setting-group__header">
+            <label class="setting-label">Position Mode</label>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" data-target="drag-mode-toggle" />
+              <span class="toggle__slider"></span>
+            </label>
+            <span class="setting-sublabel">Drag to reposition watermark</span>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" data-target="snap-grid-toggle" />
+              <span class="toggle__slider"></span>
+            </label>
+            <span class="setting-sublabel">Snap to 10% grid</span>
+          </div>
+        </div>
+
+        <!-- AI Zone Detection toggle -->
+        <div class="setting-group">
+          <div class="setting-group__header">
+            <label class="setting-label">AI Face Detection</label>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" data-target="face-detect-toggle" />
+              <span class="toggle__slider"></span>
+            </label>
+            <span class="setting-sublabel">Exclude face regions from placement</span>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" data-target="show-faces-toggle" />
+              <span class="toggle__slider"></span>
+            </label>
+            <span class="setting-sublabel">Show detected zones</span>
+          </div>
+        </div>
+
+        <!-- Invisible Watermark toggle -->
+        <div class="setting-group">
+          <div class="setting-group__header">
+            <label class="setting-label">Invisible Watermark</label>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" data-target="invisible-wm-toggle" checked />
+              <span class="toggle__slider"></span>
+            </label>
+            <span class="setting-sublabel">Embed on export (DCT steganography)</span>
+          </div>
+          <button class="btn-secondary btn-secondary--sm btn-secondary--full" data-action="verify-watermark" style="margin-top: 8px;">
+            Verify Watermark
+          </button>
+          <input type="file" data-target="verify-file-input" accept=".png,.jpg,.jpeg,.webp" hidden />
+        </div>
+
+        <!-- Presets -->
+        <div class="setting-group setting-group--border-top">
+          <div class="setting-group__header">
+            <label class="setting-label">Presets</label>
+            <button class="btn-text btn-text--accent" data-action="toggle-preset-save">Save current</button>
+          </div>
+          <div class="preset-save" data-target="preset-save" hidden>
+            <input type="text" class="input-field" data-target="preset-name-input" placeholder="Preset name..." />
+            <button class="btn-primary btn-primary--sm" data-action="save-preset">Save</button>
+          </div>
+          <div class="preset-selector">
+            <button class="input-field preset-selector__btn" data-action="toggle-presets">
+              <span>Load preset...</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="preset-dropdown" data-target="preset-dropdown" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Keyboard shortcuts -->
+      <div class="card shortcuts-card">
+        <button class="shortcuts-card__toggle" data-action="toggle-shortcuts">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+          Keyboard Shortcuts
+        </button>
+        <div class="shortcuts-list" data-target="shortcuts-list" hidden>
+          <div class="shortcut"><span>Open files</span><kbd>Ctrl+O</kbd></div>
+          <div class="shortcut"><span>Batch process</span><kbd>Ctrl+Shift+B</kbd></div>
+          <div class="shortcut"><span>Undo</span><kbd>Ctrl+Z</kbd></div>
+          <div class="shortcut"><span>Redo</span><kbd>Ctrl+Y</kbd></div>
+          <div class="shortcut"><span>Toggle shortcuts</span><kbd>?</kbd></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Toast container -->
+  <div class="toast-container" data-target="toast-container"></div>
+
+  <!-- Lightbox -->
+  <div class="lightbox" data-target="lightbox" hidden>
+    <button class="lightbox__close" data-action="close-lightbox">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <img data-target="lightbox-image" alt="Full size" class="lightbox__image" />
+  </div>
+
+  <!-- Scripts -->
+  <script src="/js/api.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/upload.js"></script>
+  <script src="/js/preview.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

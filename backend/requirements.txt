@@ -1,6 +1,16 @@
-fastapi==0.115.6
-uvicorn==0.34.0
+# Core web framework
+flask==3.1.0
+
+# Image processing
 pillow==11.1.0
 numpy==2.2.2
-pydantic==2.10.5
+opencv-python-headless==4.10.0.84
+
+# AI face detection (optional — graceful degradation if missing)
+mediapipe==0.10.21
+
+# Invisible watermark steganography (optional — graceful degradation if missing)
+invisible-watermark==0.5.0
+
+# Utilities
 python-multipart==0.0.20
