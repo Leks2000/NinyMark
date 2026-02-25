@@ -14,6 +14,12 @@ export interface WatermarkSettings {
   padding: number;
   color: WatermarkColorType;
   custom_text: string;
+  /** Override S/M/L — fraction of image width (0.03–0.40). null = use size enum. */
+  custom_size_pct: number | null;
+  /** Manual placement X as fraction of image width (0.0–1.0). null = auto zone. */
+  manual_x: number | null;
+  /** Manual placement Y as fraction of image height (0.0–1.0). null = auto zone. */
+  manual_y: number | null;
 }
 
 export interface ImageFile {
@@ -58,6 +64,9 @@ export interface Preset {
   padding: number;
   color: WatermarkColorType;
   custom_text: string;
+  custom_size_pct?: number | null;
+  manual_x?: number | null;
+  manual_y?: number | null;
 }
 
 export interface PresetsMap {
@@ -71,6 +80,9 @@ export const DEFAULT_SETTINGS: WatermarkSettings = {
   padding: 20,
   color: "light",
   custom_text: "patreon.com/Ninyra",
+  custom_size_pct: null,
+  manual_x: null,
+  manual_y: null,
 };
 
 export const STYLE_LABELS: Record<WatermarkStyleType, string> = {

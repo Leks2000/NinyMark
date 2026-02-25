@@ -1,16 +1,19 @@
-# Core web framework
-flask==3.1.0
+# Core web framework (FastAPI)
+fastapi==0.115.11
+uvicorn==0.34.0
+python-multipart==0.0.20
 
 # Image processing
 pillow==11.1.0
-numpy==2.2.2
+numpy==1.26.4
 opencv-python-headless==4.10.0.84
 
-# AI face detection (optional — graceful degradation if missing)
+# AI face detection
 mediapipe==0.10.21
+protobuf==4.25.3
 
-# Invisible watermark steganography (optional — graceful degradation if missing)
-invisible-watermark==0.5.0
+# Invisible watermark steganography
+invisible-watermark>=0.2.0
 
 # Utilities
-python-multipart==0.0.20
+# Note: DO NOT add 'pathlib' here, it's built into Python 3.x
