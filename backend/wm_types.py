@@ -53,6 +53,7 @@ class WatermarkSettings:
     # When set, zone detection is skipped.
     manual_x: float | None = None
     manual_y: float | None = None
+    embed_invisible: bool = False
 
     def __post_init__(self) -> None:
         if not 0.3 <= self.opacity <= 1.0:

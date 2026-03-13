@@ -20,6 +20,8 @@ export interface WatermarkSettings {
   manual_x: number | null;
   /** Manual placement Y as fraction of image height (0.0–1.0). null = auto zone. */
   manual_y: number | null;
+  /** Whether to embed an invisible steganographic watermark on final export. */
+  embed_invisible: boolean;
 }
 
 export interface ImageFile {
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: WatermarkSettings = {
   custom_size_pct: null,
   manual_x: null,
   manual_y: null,
+  embed_invisible: false,
 };
 
 export const STYLE_LABELS: Record<WatermarkStyleType, string> = {

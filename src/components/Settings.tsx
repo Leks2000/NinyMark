@@ -151,15 +151,16 @@ export function Settings({ settings, onUpdate, disabled }: SettingsProps) {
       {/* Size */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-text-secondary">Size</label>
+        {/* Preset buttons — always visible */}
         <div className="grid grid-cols-3 gap-2">
           {SIZES.map((s) => (
             <button
               key={s}
-              onClick={() => onUpdate({ size: s })}
+              onClick={() => onUpdate({ size: s, custom_size_pct: null })}
               disabled={disabled}
               className={`
                 py-2 rounded-lg border text-sm font-medium transition-all duration-200
-                ${settings.size === s
+                ${settings.size === s && settings.custom_size_pct === null
                   ? "border-accent bg-accent/10 text-accent"
                   : "border-bg-hover hover:border-text-muted"
                 }
@@ -169,7 +170,53 @@ export function Settings({ settings, onUpdate, disabled }: SettingsProps) {
             </button>
           ))}
         </div>
+
+        {/* Custom size slider */}
+        <div className="pt-1">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-text-muted">Custom size</span>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-mono transition-colors ${settings.custom_size_pct !== null ? "text-accent" : "text-text-muted"
+                }`}>
+                {settings.custom_size_pct !== null
+                  ? `${Math.round(settings.custom_size_pct * 100)}%`
+                  : "off"}
+              </span>
+              {settings.custom_size_pct !== null && (
+                <button
+                  onClick={() => onUpdate({ custom_size_pct: null })}
+                  disabled={disabled}
+                  className="text-[10px] text-text-muted hover:text-accent transition-colors"
+                  title="Reset to preset"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+          <input
+            type="range"
+            min={3}
+            max={40}
+            step={1}
+            value={settings.custom_size_pct !== null
+              ? Math.round(settings.custom_size_pct * 100)
+              : (() => {
+                const map = { S: 8, M: 12, L: 18 } as const;
+                return map[settings.size] ?? 12;
+              })()
+            }
+            onChange={(e) => onUpdate({ custom_size_pct: Number(e.target.value) / 100 })}
+            disabled={disabled}
+            className="w-full h-2 bg-bg-hover rounded-full appearance-none cursor-pointer accent-accent"
+          />
+          <div className="flex justify-between text-[10px] text-text-muted mt-0.5">
+            <span>3%</span>
+            <span>40%</span>
+          </div>
+        </div>
       </div>
+
 
       {/* Padding */}
       <div className="space-y-2">
@@ -241,6 +288,37 @@ export function Settings({ settings, onUpdate, disabled }: SettingsProps) {
         />
       </div>
 
+      {/* Invisible Watermark Toggle */}
+      <div className="pt-2">
+        <button
+          onClick={() => onUpdate({ embed_invisible: !settings.embed_invisible })}
+          disabled={disabled}
+          className={`
+            w-full flex items-center justify-between p-3 rounded-lg border transition-all
+            ${settings.embed_invisible
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-bg-hover hover:border-text-muted bg-bg"
+            }
+          `}
+        >
+          <div className="text-left">
+            <div className="text-sm font-medium">Invisible Watermark</div>
+            <div className="text-[10px] text-text-muted mt-0.5">
+              Embed hidden data into image pixels
+            </div>
+          </div>
+          <div className={`
+            w-10 h-5 rounded-full relative transition-colors duration-200
+            ${settings.embed_invisible ? "bg-accent" : "bg-bg-hover"}
+          `}>
+            <div className={`
+              absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform duration-200
+              ${settings.embed_invisible ? "translate-x-5" : "translate-x-0"}
+            `} />
+          </div>
+        </button>
+      </div>
+
       {/* Presets */}
       <div className="space-y-2 pt-2 border-t border-bg-hover">
         <div className="flex items-center justify-between">
@@ -292,9 +370,8 @@ export function Settings({ settings, onUpdate, disabled }: SettingsProps) {
           >
             <span className="text-text-muted">Load preset...</span>
             <ChevronDown
-              className={`w-4 h-4 transition-transform ${
-                presetsOpen ? "rotate-180" : ""
-              }`}
+              className={`w-4 h-4 transition-transform ${presetsOpen ? "rotate-180" : ""
+                }`}
             />
           </button>
           {presetsOpen && Object.keys(presets).length > 0 && (

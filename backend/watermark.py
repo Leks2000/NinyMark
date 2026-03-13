@@ -216,20 +216,38 @@ def apply_watermark(
 ) -> tuple[Image.Image, str, float, list[float]]:
     """Apply watermark to a copy of the image."""
     result_image = image.convert("RGBA")
-    width, height = result_image.size
+    original_width, original_height = result_image.size
 
-    # Determine watermark width
+    # PERFORMANCE: Downscale high-res images for faster zone analysis
+    # No need for full resolution to detect standard deviations
+    max_dim = 1024
+    if original_width > max_dim or original_height > max_dim:
+        scale = max_dim / max(original_width, original_height)
+        new_size = (int(original_width * scale), int(original_height * scale))
+        # Use simpler interpolation for speed
+        grayscale_small = result_image.convert("L").resize(new_size, Image.Resampling.NEAREST)
+        grayscale = np.array(grayscale_small)
+        # These are used for zone placement math
+        analysis_height, analysis_width = grayscale.shape
+    else:
+        grayscale = np.array(result_image.convert("L"))
+        analysis_height, analysis_width = grayscale.shape
+
+    # Determine watermark width based on ORIGINAL dimensions
     custom_pct = settings.get("custom_size_pct")
     if custom_pct is not None:
-        target_width = int(width * float(custom_pct))
+        target_width = int(original_width * float(custom_pct))
     else:
         size_key = str(settings.get("size", "M"))
         multiplier = SIZE_MULTIPLIERS.get(size_key, 0.12)
-        target_width = int(width * multiplier)
+        target_width = int(original_width * multiplier)
 
     # Render watermark element
-    style = str(settings.get("style", "branded_block"))
-    renderer = STYLE_RENDERERS.get(style, _render_style_branded_block)
+    style = settings.get("style", "branded_block")
+    # Handle both string and Enum members
+    style_key = style.value if hasattr(style, "value") else str(style)
+    
+    renderer = STYLE_RENDERERS.get(style_key, _render_style_branded_block)
     wm_element = renderer(settings, target_width, font_path)
 
     # Apply opacity
@@ -247,22 +265,24 @@ def apply_watermark(
     manual_y = settings.get("manual_y")
 
     if manual_x is not None and manual_y is not None:
-        px = int(float(manual_x) * width)
-        py = int(float(manual_y) * height)
-        px = max(0, min(px, width - wm_w))
-        py = max(0, min(py, height - wm_h))
+        # Calculate pixel position as the CENTER of the watermark
+        px = int(float(manual_x) * original_width) - (wm_w // 2)
+        py = int(float(manual_y) * original_height) - (wm_h // 2)
+        # Clamp to ensure it stays within the image
+        px = max(0, min(px, original_width - wm_w))
+        py = max(0, min(py, original_height - wm_h))
         zone_name = "manual"
         zone_score = 1.0
         all_scores: list[float] = []
     else:
-        # Smart zone detection
-        image_array = np.array(result_image)
+        # Smart zone detection (uses downscaled analysis_width if needed)
         zone_result = detect_best_zone(
-            image_array,
+            grayscale, # Pass the already prepared grayscale (possibly downscaled)
             watermark_width=wm_w,
             watermark_height=wm_h,
             padding=padding,
             face_bboxes=face_bboxes,
+            original_dims=(original_width, original_height)
         )
         px, py = zone_result.x, zone_result.y
         zone_name = zone_result.zone_name
@@ -285,6 +305,7 @@ def process_single_image(
     face_bboxes: list[object] | None = None,
     font_path: Optional[str] = None,
     embed_invisible: bool = False,
+    preview: bool = False,
 ) -> dict[str, object]:
     """Process a single image: decode, apply watermark, return result dict."""
     image = base64_to_image(image_base64)
@@ -294,8 +315,8 @@ def process_single_image(
         image, settings, face_bboxes=face_bboxes, font_path=font_path
     )
 
-    # Embed invisible watermark on export if requested
-    if embed_invisible:
+    # Embed invisible watermark ONLY on final export (not preview)
+    if embed_invisible and not preview:
         from backend.steganography import embed_watermark, is_available
         if is_available():
             result_image = embed_watermark(result_image)

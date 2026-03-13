@@ -23,6 +23,7 @@ interface UseWatermarkReturn {
   isProcessing: boolean;
   progress: number;
   processAll: () => Promise<void>;
+  reprocessSingle: (id: string, settings: WatermarkSettings) => Promise<void>;
   clearResults: () => void;
   error: string | null;
   clearError: () => void;
@@ -152,64 +153,74 @@ export function useWatermark(): UseWatermarkReturn {
     setIsProcessing(true);
     setProgress(0);
     setError(null);
-    setProcessedImages([]);
+    // Don't clear results here — the UI will manage persistence/updates
+    // setProcessedImages([]); 
     abortRef.current = false;
 
     try {
       if (images.length === 1) {
         // Single image processing
         const img = images[0];
-        const response = await processSingle(img.base64, settings, img.name);
+        const response = await processSingle(img.base64, settings, img.name, true);
         if (abortRef.current) return;
 
         const mime = getMimeForFilename(img.name);
-        setProcessedImages([
-          {
-            id: img.id,
-            name: img.name,
-            originalPreview: img.preview,
-            resultBase64: response.result,
-            resultPreview: `data:${mime};base64,${response.result}`,
-            zoneUsed: response.zone_used,
-            zoneScore: response.zone_score,
-          },
-        ]);
+        const result = {
+          id: img.id,
+          name: img.name,
+          originalPreview: img.preview,
+          resultBase64: response.result,
+          resultPreview: `data:${mime};base64,${response.result}`,
+          zoneUsed: response.zone_used,
+          zoneScore: response.zone_score,
+        };
+
+        setProcessedImages(prev => {
+          const index = prev.findIndex(p => p.id === img.id);
+          if (index === -1) return [result];
+          const next = [...prev];
+          next[index] = result;
+          return next;
+        });
         setProgress(100);
       } else {
-        // Batch: process in chunks of 5 for progress feedback
-        const chunkSize = 5;
-        const results: ProcessedImage[] = [];
+        // Batch: process in parallel chunks of 4 (matching backend capacity)
+        const chunkSize = 4;
+        let processedCount = 0;
 
         for (let i = 0; i < images.length; i += chunkSize) {
           if (abortRef.current) break;
 
           const chunk = images.slice(i, i + chunkSize);
-          const batchPayload = chunk.map((img) => ({
-            name: img.name,
-            data: img.base64,
-          }));
 
-          const response = await processBatch(batchPayload, settings);
-
-          for (let j = 0; j < response.results.length; j++) {
-            const res = response.results[j];
-            const original = chunk[j];
-            const mime = getMimeForFilename(res.name);
-            results.push({
-              id: original.id,
-              name: res.name,
-              originalPreview: original.preview,
-              resultBase64: res.data,
-              resultPreview: `data:${mime};base64,${res.data}`,
-              zoneUsed: res.zone_used,
-              zoneScore: res.zone_score,
-            });
-          }
-
-          setProcessedImages([...results]);
-          setProgress(
-            Math.min(100, Math.round(((i + chunk.length) / images.length) * 100))
+          // Process current chunk in parallel
+          const chunkPromises = chunk.map((img) =>
+            processSingle(img.base64, settings, img.name, true)
+              .then(response => ({
+                id: img.id,
+                name: img.name,
+                originalPreview: img.preview,
+                resultBase64: response.result,
+                resultPreview: `data:${getMimeForFilename(img.name)};base64,${response.result}`,
+                zoneUsed: response.zone_used,
+                zoneScore: response.zone_score,
+              }))
           );
+
+          const chunkResults = await Promise.all(chunkPromises);
+          if (abortRef.current) break;
+
+          processedCount += chunk.length;
+          setProcessedImages(prev => {
+            const next = [...prev];
+            chunkResults.forEach(res => {
+              const idx = next.findIndex(p => p.id === res.id);
+              if (idx === -1) next.push(res);
+              else next[idx] = res;
+            });
+            return next;
+          });
+          setProgress(Math.min(100, Math.round((processedCount / images.length) * 100)));
         }
       }
     } catch (err: unknown) {
@@ -220,6 +231,38 @@ export function useWatermark(): UseWatermarkReturn {
       setIsProcessing(false);
     }
   }, [images, settings]);
+
+  /**
+   * Re-process a single image in-place (used for instant feedback when settings change).
+   */
+  const reprocessSingle = useCallback(async (imageId: string, currentSettings: WatermarkSettings) => {
+    const img = images.find(i => i.id === imageId);
+    if (!img) return;
+
+    try {
+      const response = await processSingle(img.base64, currentSettings, img.name, true);
+      const mime = getMimeForFilename(img.name);
+      const result = {
+        id: img.id,
+        name: img.name,
+        originalPreview: img.preview,
+        resultBase64: response.result,
+        resultPreview: `data:${mime};base64,${response.result}`,
+        zoneUsed: response.zone_used,
+        zoneScore: response.zone_score,
+      };
+
+      setProcessedImages(prev => {
+        const index = prev.findIndex(p => p.id === imageId);
+        if (index === -1) return [...prev, result];
+        const next = [...prev];
+        next[index] = result;
+        return next;
+      });
+    } catch (err) {
+      console.error("Failed to re-process individual image:", err);
+    }
+  }, [images]);
 
   return {
     settings,
@@ -232,6 +275,7 @@ export function useWatermark(): UseWatermarkReturn {
     isProcessing,
     progress,
     processAll,
+    reprocessSingle,
     clearResults,
     error,
     clearError,

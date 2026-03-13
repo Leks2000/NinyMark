@@ -91,7 +91,8 @@ export async function healthCheck(): Promise<boolean> {
 export async function processSingle(
   imageBase64: string,
   settings: WatermarkSettings,
-  name: string
+  name: string,
+  preview: boolean = false
 ): Promise<SingleResponse> {
   return apiRequest<SingleResponse>("/process/single", {
     method: "POST",
@@ -99,6 +100,7 @@ export async function processSingle(
       image: imageBase64,
       settings,
       name,
+      preview,
     }),
   });
 }

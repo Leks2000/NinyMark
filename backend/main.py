@@ -22,6 +22,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
+from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -103,6 +104,7 @@ class SettingsPayload(BaseModel):
     # Manual placement: fraction of image dimensions (0.0–1.0)
     manual_x: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     manual_y: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    embed_invisible: bool = False
 
     def to_watermark_settings(self) -> WatermarkSettings:
         return WatermarkSettings(
@@ -115,6 +117,7 @@ class SettingsPayload(BaseModel):
             custom_size_pct=self.custom_size_pct,
             manual_x=self.manual_x,
             manual_y=self.manual_y,
+            embed_invisible=self.embed_invisible,
         )
 
 
@@ -122,6 +125,7 @@ class SingleRequest(BaseModel):
     image: str  # base64
     settings: SettingsPayload = SettingsPayload()
     name: str = "image.png"
+    preview: bool = False
 
 
 class SingleResponse(BaseModel):
@@ -208,19 +212,25 @@ async def health_check() -> dict[str, str]:
 async def process_single(request: SingleRequest) -> SingleResponse:
     """Process a single image with watermark."""
     try:
-        settings = request.settings.to_watermark_settings()
+        settings_obj = request.settings.to_watermark_settings()
+        settings_dict = asdict(settings_obj)
+        
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             executor,
             process_single_image,
             request.image,
-            settings,
+            settings_dict,
             request.name,
+            None, # face_bboxes
+            None, # font_path
+            settings_obj.embed_invisible,
+            request.preview,
         )
         return SingleResponse(
-            result=result.image_base64,
-            zone_used=result.zone_used,
-            zone_score=round(result.zone_score, 2),
+            result=result["image_base64"],
+            zone_used=result["zone_used"],
+            zone_score=round(result["zone_score"], 2),
         )
     except ValueError as exc:
         logger.error("Invalid input for single process: %s", exc)
@@ -234,26 +244,36 @@ async def process_single(request: SingleRequest) -> SingleResponse:
 async def process_batch(request: BatchRequest) -> BatchResponse:
     """Process multiple images with watermark in parallel."""
     try:
-        settings = request.settings.to_watermark_settings()
-        loop = asyncio.get_event_loop()
+        settings_obj = request.settings.to_watermark_settings()
+        settings_dict = asdict(settings_obj)
 
-        async def process_one(item: BatchImageItem) -> BatchResultItem:
-            result = await loop.run_in_executor(
+        results = []
+        # Run in parallel using the executor
+        loop = asyncio.get_event_loop()
+        futures = [
+            loop.run_in_executor(
                 executor,
                 process_single_image,
-                item.data,
-                settings,
-                item.name,
+                img.data,
+                settings_dict,
+                img.name,
+                None, # face_bboxes
+                None, # font_path
+                settings_obj.embed_invisible,
             )
-            return BatchResultItem(
-                name=result.original_name,
-                data=result.image_base64,
-                zone_used=result.zone_used,
-                zone_score=round(result.zone_score, 2),
-            )
+            for img in request.images
+        ]
 
-        tasks = [process_one(item) for item in request.images]
-        results = await asyncio.gather(*tasks)
+        # Wait for all images to process
+        processed_list = await asyncio.gather(*futures)
+
+        for res in processed_list:
+            results.append(BatchResultItem(
+                name=res["original_name"],
+                data=res["image_base64"],
+                zone_used=res["zone_used"],
+                zone_score=round(res["zone_score"], 2),
+            ))
 
         return BatchResponse(results=list(results))
     except ValueError as exc:

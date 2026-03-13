@@ -33,20 +33,21 @@ export function App() {
     isProcessing,
     progress,
     processAll,
+    reprocessSingle,
     clearResults,
     error,
     clearError,
   } = useWatermark();
 
-  // Manual placement mode — defined before early returns
+  // Manual placement mode
   const [isManualMode, setIsManualMode] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
 
   const handleManualPlace = useCallback((x: number, y: number) => {
     updateSettings({ manual_x: x, manual_y: y });
     setIsManualMode(false);
-    // Re-process immediately with the new position
-    setTimeout(() => processAll(), 50);
-  }, [updateSettings, processAll]);
+  }, [updateSettings]);
 
   // Health check polling
   useEffect(() => {
@@ -62,6 +63,19 @@ export function App() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Instant re-processing of currently selected image when settings change (debounced)
+  useEffect(() => {
+    if (processedImages.length > 0 && !isProcessing) {
+      const currentImg = processedImages[selectedIdx];
+      if (currentImg) {
+        const timer = setTimeout(() => {
+          reprocessSingle(currentImg.id, settings);
+        }, 30); // Tiny debounce to allow state to settle
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [settings, selectedIdx, processedImages, isProcessing, reprocessSingle]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -81,17 +95,42 @@ export function App() {
         input.click();
       }
 
-      // Ctrl+Shift+B — batch process
-      if (e.ctrlKey && e.shiftKey && e.key === "B") {
+      // Ctrl+Shift+B or 'S' — batch process
+      if ((e.ctrlKey && e.shiftKey && e.key === "B") || (e.key === "s" && !e.ctrlKey && !e.metaKey)) {
         e.preventDefault();
         if (images.length > 0 && !isProcessing) {
           processAll();
         }
       }
 
+      // Space — toggle before/after
+      if (e.code === "Space") {
+        e.preventDefault();
+        setShowOriginal((prev) => !prev);
+      }
+
+      // 'm' — toggle manual placement
+      if (e.key === "m" && !e.ctrlKey && !e.metaKey) {
+        setIsManualMode((prev) => !prev);
+      }
+
+      // Arrows — navigate
+      if (e.key === "ArrowRight") {
+        setSelectedIdx((prev) => (prev + 1) % Math.max(1, processedImages.length));
+      }
+      if (e.key === "ArrowLeft") {
+        setSelectedIdx((prev) => (prev - 1 + processedImages.length) % Math.max(1, processedImages.length));
+      }
+
+      // Numbers 1, 2, 3 — Presets
+      if (e.key === "1") updateSettings({ style: "text" });
+      if (e.key === "2") updateSettings({ style: "icon_text" });
+      if (e.key === "3") updateSettings({ style: "branded_block" });
+
       // Escape — close lightbox / shortcuts
       if (e.key === "Escape") {
         setShowShortcuts(false);
+        setIsManualMode(false);
       }
 
       // ? — toggle shortcuts help
@@ -102,7 +141,7 @@ export function App() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [addImages, images.length, isProcessing, processAll]);
+  }, [addImages, images.length, isProcessing, processAll, processedImages.length, updateSettings]);
 
   const canProcess = images.length > 0 && !isProcessing && backendOnline;
 
@@ -147,8 +186,8 @@ export function App() {
                 <button
                   onClick={() => setIsManualMode((m) => !m)}
                   className={`text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg border transition-all ${isManualMode
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "btn-secondary"
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "btn-secondary"
                     }`}
                   title="Click on the image to manually place the watermark"
                 >
@@ -198,6 +237,12 @@ export function App() {
             progress={progress}
             isManualMode={isManualMode}
             onManualPlace={handleManualPlace}
+            showOriginal={showOriginal}
+            setShowOriginal={setShowOriginal}
+            selectedIdx={selectedIdx}
+            onSelectIdx={setSelectedIdx}
+            settings={settings}
+            allImages={images}
           />
         </div>
 
@@ -240,6 +285,30 @@ export function App() {
                   <span>Toggle shortcuts</span>
                   <kbd className="bg-bg-hover px-1.5 py-0.5 rounded text-[10px]">
                     ?
+                  </kbd>
+                </div>
+                <div className="flex justify-between">
+                  <span>Show Original</span>
+                  <kbd className="bg-bg-hover px-1.5 py-0.5 rounded text-[10px]">
+                    Space
+                  </kbd>
+                </div>
+                <div className="flex justify-between">
+                  <span>Manual Placement</span>
+                  <kbd className="bg-bg-hover px-1.5 py-0.5 rounded text-[10px]">
+                    M
+                  </kbd>
+                </div>
+                <div className="flex justify-between">
+                  <span>Process/Save</span>
+                  <kbd className="bg-bg-hover px-1.5 py-0.5 rounded text-[10px]">
+                    S
+                  </kbd>
+                </div>
+                <div className="flex justify-between">
+                  <span>Styles</span>
+                  <kbd className="bg-bg-hover px-1.5 py-0.5 rounded text-[10px]">
+                    1/2/3
                   </kbd>
                 </div>
               </motion.div>

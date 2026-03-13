@@ -34,7 +34,8 @@ pip install pyinstaller -q
 echo.
 
 echo [2/5] Building Python backend (backend.exe)...
-if not exist "resources\backend" mkdir "resources\backend"
+if exist "resources\backend" rd /s /q "resources\backend"
+mkdir "resources\backend"
 
 cd ..\backend
 pyinstaller backend.spec --distpath "..\desktop\resources\backend" --workpath "..\desktop\build-tmp\pyinstaller" --noconfirm --clean
@@ -45,12 +46,11 @@ if %PYI_ERR% NEQ 0 (
     echo [ERROR] PyInstaller failed with code %PYI_ERR%
     pause & exit /b 1
 )
-echo [OK] backend.exe ready: resources\backend\backend.exe
+echo [OK] backend ready in resources\backend\backend\
 echo.
 
 echo [3/5] Installing Node.js dependencies...
 call npm install --prefer-offline
-REM npm returns non-zero for vulnerability warnings - that's OK, continue
 echo.
 
 echo [4/5] Building React frontend...
@@ -62,7 +62,7 @@ if %VITE_ERR% NEQ 0 (
 )
 echo [OK] Frontend built to dist/
 
-REM Copy dist/ next to backend.exe so it can serve it when packaged
+echo [Copying dist to resources...]
 if not exist "resources\backend\dist" mkdir "resources\backend\dist"
 xcopy /E /I /Y "dist\*" "resources\backend\dist\" >nul
 echo [OK] dist/ copied to resources/backend/dist/

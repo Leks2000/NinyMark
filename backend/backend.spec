@@ -27,6 +27,8 @@ a = Analysis(
     datas=[
         # Include the Patreon icon asset
         (str(ROOT / 'assets'), 'assets'),
+        # Include the MediaPipe face detection model
+        (str(ROOT / 'backend' / 'blaze_face_short_range.tflite'), 'backend'),
     ],
     hiddenimports=[
         # FastAPI / Starlette internal imports that PyInstaller misses
@@ -52,6 +54,7 @@ a = Analysis(
         'starlette.middleware',
         'starlette.staticfiles',
         'starlette.responses',
+        'starlette.templating',
         'anyio',
         'anyio._backends._asyncio',
         'PIL',
@@ -67,6 +70,12 @@ a = Analysis(
         'backend.watermark',
         'backend.zone_detector',
         'backend.wm_types',
+        'backend.ai_detection',
+        # MediaPipe and its deps
+        'mediapipe',
+        'mediapipe.python',
+        'mediapipe.python.solutions',
+        'mediapipe.python.solutions.face_detection',
         # Standard lib
         'email',
         'email.mime',
@@ -85,7 +94,12 @@ a = Analysis(
         'IPython',
         'jupyter',
         'cv2',  # We use Pillow, not OpenCV
-        'backend.types',  # Renamed to wm_types.py to avoid stdlib shadowing
+        'torch',
+        'torchvision',
+        'tensorflow',
+        'tensorboard',
+        'triton',
+        'nvidia',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -98,23 +112,28 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,          # No console window (hidden background process)
+    console=False,          # No console window
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # Windows-specific: hide the console window
-    uac_admin=False,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='backend',
 )

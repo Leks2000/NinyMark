@@ -288,6 +288,37 @@ export function Settings({ settings, onUpdate, disabled }: SettingsProps) {
         />
       </div>
 
+      {/* Invisible Watermark Toggle */}
+      <div className="pt-2">
+        <button
+          onClick={() => onUpdate({ embed_invisible: !settings.embed_invisible })}
+          disabled={disabled}
+          className={`
+            w-full flex items-center justify-between p-3 rounded-lg border transition-all
+            ${settings.embed_invisible
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-bg-hover hover:border-text-muted bg-bg"
+            }
+          `}
+        >
+          <div className="text-left">
+            <div className="text-sm font-medium">Invisible Watermark</div>
+            <div className="text-[10px] text-text-muted mt-0.5">
+              Embed hidden data into image pixels
+            </div>
+          </div>
+          <div className={`
+            w-10 h-5 rounded-full relative transition-colors duration-200
+            ${settings.embed_invisible ? "bg-accent" : "bg-bg-hover"}
+          `}>
+            <div className={`
+              absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform duration-200
+              ${settings.embed_invisible ? "translate-x-5" : "translate-x-0"}
+            `} />
+          </div>
+        </button>
+      </div>
+
       {/* Presets */}
       <div className="space-y-2 pt-2 border-t border-bg-hover">
         <div className="flex items-center justify-between">

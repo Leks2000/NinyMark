@@ -61,7 +61,20 @@ function getBackendPaths() {
     if (isPackaged) {
         // Production: resources are in process.resourcesPath
         const resourcesPath = process.resourcesPath;
-        const backendExe = path.join(resourcesPath, "backend", "backend.exe");
+        // Search in several places due to PyInstaller onedir behavior
+        const candidates = [
+            path.join(resourcesPath, "backend", "backend.exe"),           // onefile
+            path.join(resourcesPath, "backend", "backend", "backend.exe") // onedir
+        ];
+
+        let backendExe = candidates[0];
+        for (const c of candidates) {
+            if (fs.existsSync(c)) {
+                backendExe = c;
+                break;
+            }
+        }
+
         const backendScript = path.join(resourcesPath, "backend", "main.py");
         return { resourcesPath, backendExe, backendScript, isPackaged };
     } else {
@@ -183,13 +196,18 @@ async function startBackend() {
  * Poll /health endpoint until backend responds (R15).
  * Retries every 500ms for up to 30 seconds.
  */
-function waitForBackend(port, maxAttempts = 60) {
+function waitForBackend(port, maxAttempts = 120) {
     return new Promise((resolve, reject) => {
         let attempts = 0;
+        let isChecking = false;
 
         const check = () => {
+            if (isChecking) return;
+            isChecking = true;
             attempts++;
+
             const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
+                isChecking = false;
                 if (res.statusCode === 200) {
                     log("INFO", `Backend ready on port ${port} after ${attempts} attempts`);
                     resolve(port);
@@ -199,14 +217,16 @@ function waitForBackend(port, maxAttempts = 60) {
             });
 
             req.on("error", () => {
+                isChecking = false;
                 if (attempts >= maxAttempts) {
-                    reject(new Error(`Backend failed to start after ${maxAttempts} attempts`));
+                    reject(new Error(`Backend failed to start after ${maxAttempts} attempts (tried for ${maxAttempts * 0.5}s)`));
                 } else {
                     retry();
                 }
             });
 
             req.setTimeout(1000, () => {
+                isChecking = false;
                 req.destroy();
                 retry();
             });

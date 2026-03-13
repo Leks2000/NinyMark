@@ -60,9 +60,9 @@ def _compute_zone_std_deviations(grayscale: NDArray[np.uint8]) -> list[float]:
 
 def _zone_overlaps_faces(
     zone_index: int,
-    image_width: int,
-    image_height: int,
     face_bboxes: list[object],
+    orig_w: int,
+    orig_h: int,
 ) -> bool:
     """Check if a 3x3 grid zone overlaps any face bounding box."""
     if not face_bboxes:
@@ -70,19 +70,21 @@ def _zone_overlaps_faces(
 
     row = zone_index // 3
     col = zone_index % 3
-    col_w = image_width // 3
-    row_h = image_height // 3
+    col_w = 1.0 / 3.0
+    row_h = 1.0 / 3.0
 
+    # Normalized zone bounds
     zx1 = col * col_w
     zy1 = row * row_h
-    zx2 = (col + 1) * col_w if col < 2 else image_width
-    zy2 = (row + 1) * row_h if row < 2 else image_height
+    zx2 = (col + 1) * col_w
+    zy2 = (row + 1) * row_h
 
     for face in face_bboxes:
-        fx1 = getattr(face, "x_min", 0)
-        fy1 = getattr(face, "y_min", 0)
-        fx2 = getattr(face, "x_max", 0)
-        fy2 = getattr(face, "y_max", 0)
+        # Normalize face to 0..1
+        fx1 = getattr(face, "x_min", 0) / orig_w
+        fy1 = getattr(face, "y_min", 0) / orig_h
+        fx2 = getattr(face, "x_max", 0) / orig_w
+        fy2 = getattr(face, "y_max", 0) / orig_h
 
         if zx1 < fx2 and zx2 > fx1 and zy1 < fy2 and zy2 > fy1:
             return True
@@ -123,29 +125,33 @@ def _calculate_placement_coords(
 
 
 def detect_best_zone(
-    image_array: NDArray[np.uint8],
+    image_input: NDArray[np.uint8],
     watermark_width: int = 0,
     watermark_height: int = 0,
     padding: int = 20,
     face_bboxes: list[object] | None = None,
+    original_dims: tuple[int, int] | None = None,
 ) -> ZoneResult:
     """Analyze image and determine best zone for watermark placement."""
-    # Convert to grayscale
-    if len(image_array.shape) == 3:
-        if image_array.shape[2] == 4:
+    # Input can be 2D grayscale or 3D RGB/RGBA
+    if len(image_input.shape) == 2:
+        grayscale = image_input
+    elif len(image_input.shape) == 3:
+        if image_input.shape[2] == 4:
             grayscale = np.dot(
-                image_array[:, :, :3].astype(np.float64),
+                image_input[:, :, :3].astype(np.float64),
                 [0.299, 0.587, 0.114],
             ).astype(np.uint8)
         else:
             grayscale = np.dot(
-                image_array.astype(np.float64),
+                image_input.astype(np.float64),
                 [0.299, 0.587, 0.114],
             ).astype(np.uint8)
     else:
-        grayscale = image_array
+        grayscale = image_input
 
     height, width = grayscale.shape
+    orig_w, orig_h = original_dims if original_dims else (width, height)
 
     # Small image fallback
     if width < MIN_DIMENSION or height < MIN_DIMENSION:
@@ -167,7 +173,7 @@ def detect_best_zone(
     if face_bboxes:
         non_face_indices = [
             i for i in candidate_indices
-            if not _zone_overlaps_faces(i, width, height, face_bboxes)
+            if not _zone_overlaps_faces(i, face_bboxes, orig_w, orig_h)
         ]
         if non_face_indices:
             candidate_indices = non_face_indices
@@ -175,7 +181,7 @@ def detect_best_zone(
             # ALL zones contain faces — fallback to bottom-right
             logger.info("All zones contain faces, using bottom-right fallback")
             x, y = _calculate_placement_coords(
-                FALLBACK_ZONE_INDEX, width, height,
+                FALLBACK_ZONE_INDEX, orig_w, orig_h,
                 watermark_width, watermark_height, padding,
             )
             return ZoneResult(
@@ -197,7 +203,7 @@ def detect_best_zone(
         best_index, best_score = min(candidate_scores, key=lambda item: item[1])
 
     x, y = _calculate_placement_coords(
-        best_index, width, height,
+        best_index, orig_w, orig_h,
         watermark_width, watermark_height, padding,
     )
 
