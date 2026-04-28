@@ -1,15 +1,18 @@
 /**
  * preview.js — Preview rendering, before/after toggle, drag-and-drop watermark repositioning.
  *
- * Drag-and-drop:
- *  - Transparent overlay on preview image
- *  - Draggable watermark handle
- *  - On drag end: recalculate normalized (0.0-1.0) coords, call update
- *  - Snap-to-grid option (10% increments)
- *  - Visual guides (crosshair lines) during drag
- *  - Show live x%,y% tooltip
+ * Fast Manual Mode features:
+ *  - ← / → arrow keys to navigate between processed images
+ *  - Shift+→ to copy current manual position to next image then navigate
+ *  - Mouse wheel on drag-overlay to adjust watermark size (custom_size_pct)
+ *  - Click-to-place on drag-overlay (existing, but wired correctly)
+ *  - Prev/Next buttons in toolbar
+ *  - Image counter badge (N / total)
  *
- * Does NOT reload full preview on every drag move — only on drag end.
+ * Drag-and-drop (unchanged):
+ *  - Transparent overlay on preview image
+ *  - Draggable watermark handle with snap-to-grid
+ *  - Visual crosshair guides + live tooltip
  */
 
 const preview = (() => {
@@ -23,15 +26,18 @@ const preview = (() => {
   let snapToGrid = false;
   let isDragging = false;
   let onPositionChange = null;
+  let onSizeChange = null;
 
   /**
    * Initialize preview module.
    */
-  function init(positionChangeCallback) {
+  function init(positionChangeCallback, sizeChangeCallback) {
     onPositionChange = positionChangeCallback;
+    onSizeChange = sizeChangeCallback;
     _bindActions();
     _bindDrag();
     _bindLightbox();
+    _bindNavButtons();
   }
 
   /**
@@ -42,6 +48,18 @@ const preview = (() => {
     selectedIndex = 0;
     showingOriginal = false;
     _render();
+  }
+
+  /**
+   * Update a single item in place (used after position tweak).
+   */
+  function updateResult(index, data) {
+    if (index >= 0 && index < processedImages.length) {
+      Object.assign(processedImages[index], data);
+      if (index === selectedIndex) {
+        _renderSingle(processedImages[index]);
+      }
+    }
   }
 
   /**
@@ -110,6 +128,44 @@ const preview = (() => {
   }
 
   /**
+   * Navigate to previous image.
+   */
+  function showPrev() {
+    if (processedImages.length <= 1) return;
+    selectedIndex = (selectedIndex - 1 + processedImages.length) % processedImages.length;
+    showingOriginal = false;
+    _render();
+    ui.setVisible('single-preview', true);
+    _renderSingle(processedImages[selectedIndex]);
+  }
+
+  /**
+   * Navigate to next image.
+   */
+  function showNext() {
+    if (processedImages.length <= 1) return;
+    selectedIndex = (selectedIndex + 1) % processedImages.length;
+    showingOriginal = false;
+    _render();
+    ui.setVisible('single-preview', true);
+    _renderSingle(processedImages[selectedIndex]);
+  }
+
+  /**
+   * Get current selected index.
+   */
+  function getSelectedIndex() {
+    return selectedIndex;
+  }
+
+  /**
+   * Get total count.
+   */
+  function getTotal() {
+    return processedImages.length;
+  }
+
+  /**
    * Render the preview area based on current state.
    */
   function _render() {
@@ -117,7 +173,9 @@ const preview = (() => {
 
     ui.setVisible('preview-area', hasResults);
     ui.setVisible('results-header', hasResults);
-    ui.setVisible('single-preview', hasResults && processedImages.length === 1);
+    ui.setVisible('single-preview', hasResults);
+
+    // Show batch grid alongside single in multi-image mode
     ui.setVisible('batch-grid', hasResults && processedImages.length > 1);
 
     if (!hasResults) return;
@@ -125,15 +183,24 @@ const preview = (() => {
     const title = ui.getEl('results-title');
     if (title) title.textContent = `Results (${processedImages.length})`;
 
-    if (processedImages.length === 1) {
-      _renderSingle(processedImages[0]);
-    } else {
+    // Navigation controls — only when multi-image
+    const navControls = ui.getEl('nav-controls');
+    if (navControls) navControls.hidden = processedImages.length <= 1;
+    _updateNavCounter();
+
+    _renderSingle(processedImages[selectedIndex]);
+    if (processedImages.length > 1) {
       _renderBatch();
     }
 
     // Re-apply drag overlay state
     const overlay = ui.getEl('drag-overlay');
     if (overlay) overlay.hidden = !dragEnabled;
+  }
+
+  function _updateNavCounter() {
+    const counter = ui.getEl('nav-counter');
+    if (counter) counter.textContent = `${selectedIndex + 1} / ${processedImages.length}`;
   }
 
   /**
@@ -149,6 +216,7 @@ const preview = (() => {
     if (label) label.textContent = showingOriginal ? 'Original' : 'Watermarked';
     if (zoneInfo) zoneInfo.innerHTML = `Zone: <strong>${item.zoneUsed}</strong> (score: ${item.zoneScore.toFixed(1)})`;
     if (toggleBtn) toggleBtn.textContent = showingOriginal ? 'Show Result' : 'Show Original';
+    _updateNavCounter();
   }
 
   /**
@@ -178,9 +246,6 @@ const preview = (() => {
         selectedIndex = Number(el.dataset.batchIdx);
         showingOriginal = false;
         _render();
-        // Show selected detail in single view
-        ui.setVisible('single-preview', true);
-        _renderSingle(processedImages[selectedIndex]);
       });
     });
 
@@ -193,21 +258,20 @@ const preview = (() => {
   }
 
   /**
-   * Bind action buttons.
+   * Bind toolbar action buttons.
    */
   function _bindActions() {
     document.querySelector('[data-action="toggle-original"]')
       ?.addEventListener('click', () => {
         showingOriginal = !showingOriginal;
         if (processedImages.length > 0) {
-          const current = processedImages[selectedIndex] || processedImages[0];
-          _renderSingle(current);
+          _renderSingle(processedImages[selectedIndex]);
         }
       });
 
     document.querySelector('[data-action="download-current"]')
       ?.addEventListener('click', () => {
-        const current = processedImages[selectedIndex] || processedImages[0];
+        const current = processedImages[selectedIndex];
         if (current) _downloadImage(current);
       });
 
@@ -215,12 +279,8 @@ const preview = (() => {
       ?.addEventListener('click', async () => {
         if (processedImages.length === 0) return;
 
-        // Use JSZip if available, otherwise fall back to sequential export
         if (typeof JSZip === 'undefined') {
-          console.warn('JSZip not loaded — falling back to sequential download');
-          for (const img of processedImages) {
-            await _downloadImage(img);
-          }
+          for (const img of processedImages) await _downloadImage(img);
           return;
         }
 
@@ -233,19 +293,14 @@ const preview = (() => {
 
         try {
           const zip = new JSZip();
-
-          // Export in parallel batches of 4
           const BATCH_SIZE = 4;
           for (let i = 0; i < processedImages.length; i += BATCH_SIZE) {
             const batch = processedImages.slice(i, i + BATCH_SIZE);
-            const batchResults = await Promise.all(
-              batch.map(img => _exportImageForZip(img))
-            );
-            for (const { fileName, base64 } of batchResults) {
+            const results = await Promise.all(batch.map(img => _exportImageForZip(img)));
+            for (const { fileName, base64 } of results) {
               zip.file(fileName, base64, { base64: true });
             }
           }
-
           const blob = await zip.generateAsync({ type: 'blob' });
           const link = document.createElement('a');
           link.href = URL.createObjectURL(blob);
@@ -257,10 +312,7 @@ const preview = (() => {
         } catch (err) {
           ui.showToast('ZIP download failed: ' + (err.message || err), 'error');
         } finally {
-          if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = origText;
-          }
+          if (btn) { btn.disabled = false; btn.innerHTML = origText; }
         }
       });
 
@@ -269,7 +321,26 @@ const preview = (() => {
   }
 
   /**
-   * Bind drag-and-drop watermark repositioning.
+   * Bind Prev / Next / CopyPos nav buttons.
+   */
+  function _bindNavButtons() {
+    document.querySelector('[data-action="prev-image"]')
+      ?.addEventListener('click', showPrev);
+
+    document.querySelector('[data-action="next-image"]')
+      ?.addEventListener('click', showNext);
+
+    document.querySelector('[data-action="copy-pos-next"]')
+      ?.addEventListener('click', () => {
+        // Callback from app.js will copy current pos; we just navigate
+        if (window.__ninyra && window.__ninyra.copyPosAndGoNext) {
+          window.__ninyra.copyPosAndGoNext();
+        }
+      });
+  }
+
+  /**
+   * Bind drag-and-drop watermark repositioning + mouse wheel size.
    */
   function _bindDrag() {
     const overlay = ui.getEl('drag-overlay');
@@ -304,13 +375,11 @@ const preview = (() => {
         let newLeft = handleStartLeft + dx;
         let newTop = handleStartTop + dy;
 
-        // Clamp within overlay bounds
         const maxLeft = rect.width - handle.offsetWidth;
         const maxTop = rect.height - handle.offsetHeight;
         newLeft = Math.max(0, Math.min(newLeft, maxLeft));
         newTop = Math.max(0, Math.min(newTop, maxTop));
 
-        // Snap to grid (10% increments)
         if (snapToGrid) {
           const gridX = rect.width / 10;
           const gridY = rect.height / 10;
@@ -321,13 +390,11 @@ const preview = (() => {
         handle.style.left = `${newLeft}px`;
         handle.style.top = `${newTop}px`;
 
-        // Update guides
         const centerX = newLeft + handle.offsetWidth / 2;
         const centerY = newTop + handle.offsetHeight / 2;
         if (guideH) guideH.style.top = `${centerY}px`;
         if (guideV) guideV.style.left = `${centerX}px`;
 
-        // Update tooltip
         const normX = (newLeft / rect.width * 100).toFixed(0);
         const normY = (newTop / rect.height * 100).toFixed(0);
         if (tooltip) tooltip.textContent = `${normX}%, ${normY}%`;
@@ -339,12 +406,10 @@ const preview = (() => {
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
 
-        // Calculate normalized coordinates
         const rect = overlay.getBoundingClientRect();
         const normX = handle.offsetLeft / rect.width;
         const normY = handle.offsetTop / rect.height;
 
-        // Notify via callback — triggers API call on drag end
         if (onPositionChange) {
           onPositionChange(
             Math.max(0, Math.min(1, normX)),
@@ -357,7 +422,7 @@ const preview = (() => {
       document.addEventListener('mouseup', onMouseUp);
     });
 
-    // Also handle click on overlay (not handle) to set position
+    // Click anywhere on overlay to place watermark
     overlay.addEventListener('click', (e) => {
       if (!dragEnabled || isDragging) return;
       if (e.target === handle || handle.contains(e.target)) return;
@@ -374,13 +439,32 @@ const preview = (() => {
       normX = Math.max(0, Math.min(1, normX));
       normY = Math.max(0, Math.min(1, normY));
 
-      // Move handle
       handle.style.left = `${normX * rect.width}px`;
       handle.style.top = `${normY * rect.height}px`;
       if (tooltip) tooltip.textContent = `${(normX * 100).toFixed(0)}%, ${(normY * 100).toFixed(0)}%`;
 
       if (onPositionChange) onPositionChange(normX, normY);
     });
+
+    // ── Mouse wheel on overlay → resize watermark ─────────────────────────
+    overlay.addEventListener('wheel', (e) => {
+      if (!dragEnabled) return;
+      e.preventDefault();
+
+      const STEP = 0.01; // 1% per tick
+      const delta = e.deltaY < 0 ? STEP : -STEP;
+
+      if (onSizeChange) onSizeChange(delta);
+
+      // Flash size hint in tooltip
+      if (tooltip) {
+        const ninyra = window.__ninyra || {};
+        const st = ninyra.getSettings ? ninyra.getSettings() : {};
+        const current = st.custom_size_pct != null ? st.custom_size_pct : 0.12;
+        const newSize = Math.max(0.03, Math.min(0.40, current + delta));
+        tooltip.textContent = `Size: ${Math.round(newSize * 100)}%`;
+      }
+    }, { passive: false });
   }
 
   /**
@@ -391,8 +475,8 @@ const preview = (() => {
     if (!container) return;
 
     container.addEventListener('click', (e) => {
-      if (dragEnabled) return;  // Don't open lightbox in drag mode
-      const current = processedImages[selectedIndex] || processedImages[0];
+      if (dragEnabled) return;
+      const current = processedImages[selectedIndex];
       if (!current) return;
       const src = showingOriginal ? current.originalPreview : current.resultPreview;
       ui.showLightbox(src);
@@ -410,8 +494,7 @@ const preview = (() => {
   }
 
   /**
-   * Export a single image via backend (with invisible watermark) then trigger download.
-   * Falls back to raw preview base64 if export fails.
+   * Export a single image via backend then trigger download.
    */
   async function _downloadImage(item) {
     const ext = item.name.split('.').pop() || 'png';
@@ -420,7 +503,6 @@ const preview = (() => {
 
     let dataUrl = item.resultPreview;
 
-    // Use the backend /api/export endpoint so invisible watermark is embedded
     try {
       const ninyra = window.__ninyra || {};
       const embedInvisible = ninyra.getEmbedInvisible ? ninyra.getEmbedInvisible() : true;
@@ -458,7 +540,6 @@ const preview = (() => {
 
   /**
    * Export a single image and return its base64 result (for ZIP bundling).
-   * Returns { fileName, base64 }.
    */
   async function _exportImageForZip(item) {
     const ext = item.name.split('.').pop() || 'png';
@@ -488,10 +569,9 @@ const preview = (() => {
         return { fileName, base64: res.data.result };
       }
     } catch (err) {
-      console.warn('Export failed for', item.name, '- using preview data:', err);
+      console.warn('Export failed for', item.name, ':', err);
     }
 
-    // Fallback: use preview base64
     return { fileName, base64: item.resultBase64 };
   }
 
@@ -508,6 +588,7 @@ const preview = (() => {
   return {
     init,
     setResults,
+    updateResult,
     clearResults,
     showProgress,
     hideProgress,
@@ -515,6 +596,10 @@ const preview = (() => {
     setSnapToGrid,
     showFaceZones,
     clearFaceZones,
+    showPrev,
+    showNext,
+    getSelectedIndex,
+    getTotal,
     getMimeForFilename,
   };
 })();

@@ -25,66 +25,115 @@ PRESETS_FILE: Path = APP_DIR / "presets.json"
 ASSETS_DIR: Path = Path(__file__).parent.parent / "assets"
 _PATREON_SVG_PATH: Path = ASSETS_DIR / "patreon_icon.svg"
 _PATREON_PNG_PATH: Path = ASSETS_DIR / "patreon_icon.png"
+_TELEGRAM_SVG_PATH: Path = ASSETS_DIR / "telegram_icon.svg"
+_TELEGRAM_PNG_PATH: Path = ASSETS_DIR / "telegram_icon.png"
+_YOUTUBE_SVG_PATH: Path = ASSETS_DIR / "youtube_icon.svg"
+_YOUTUBE_PNG_PATH: Path = ASSETS_DIR / "youtube_icon.png"
 
 
-def _ensure_patreon_png() -> Path:
-    """Convert patreon_icon.svg to PNG if the PNG is missing.
+def _rasterize_patreon(png_path: Path, size: int = 256) -> None:
+    """Draw the Patreon P logo with Pillow (circle + rect)."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    scale = size / 64.0
+    cx, cy, r = 38 * scale, 20 * scale, 14 * scale
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 66, 77, 255))
+    rx = 4 * scale
+    x1, y1 = 4 * scale, 4 * scale
+    x2, y2 = (4 + 12) * scale, (4 + 56) * scale
+    draw.rounded_rectangle([x1, y1, x2, y2], radius=rx, fill=(255, 66, 77, 255))
+    img.save(str(png_path), "PNG")
 
-    Uses cairosvg when available, otherwise rasterises the simple SVG
-    geometry directly with Pillow so the build works without cairosvg.
-    Returns the path to whichever file is usable.
-    """
-    if _PATREON_PNG_PATH.exists():
-        return _PATREON_PNG_PATH
 
-    if not _PATREON_SVG_PATH.exists():
-        return _PATREON_PNG_PATH  # fallback icon will be generated later
+def _rasterize_telegram(png_path: Path, size: int = 256) -> None:
+    """Draw a flat Telegram paper-plane icon with Pillow."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    s = size
+    # Blue circle background
+    draw.ellipse([0, 0, s - 1, s - 1], fill=(41, 182, 246, 255))
+    # Paper plane arrow: simple polygon
+    sc = s / 64.0
+    plane = [
+        (13.5 * sc, 31.2 * sc),
+        (49.2 * sc, 17.5 * sc),
+        (43.3 * sc, 23.5 * sc),
+        (23.7 * sc, 35.8 * sc),
+        (28.0 * sc, 47.0 * sc),
+        (29.8 * sc, 46.2 * sc),
+        (34.0 * sc, 42.2 * sc),
+        (42.7 * sc, 48.6 * sc),
+        (45.5 * sc, 47.3 * sc),
+        (51.5 * sc, 19.7 * sc),
+        (15.1 * sc, 33.1 * sc),
+    ]
+    draw.polygon(plane, fill=(255, 255, 255, 240))
+    img.save(str(png_path), "PNG")
 
-    # Try cairosvg first (best quality)
+
+def _rasterize_youtube(png_path: Path, size: int = 256) -> None:
+    """Draw a YouTube play-button icon with Pillow."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    s = size
+    # Red rounded rect background
+    draw.rounded_rectangle([0, 0, s - 1, s - 1], radius=s // 6, fill=(255, 0, 0, 255))
+    # White play triangle
+    m = s / 64.0
+    tri = [
+        (27.3 * m, 25.1 * m),
+        (27.3 * m, 38.9 * m),
+        (38.9 * m, 32.0 * m),
+    ]
+    draw.polygon(tri, fill=(255, 255, 255, 255))
+    img.save(str(png_path), "PNG")
+
+
+_BRAND_RASTERIZERS = {
+    "patreon": (_PATREON_SVG_PATH, _PATREON_PNG_PATH, _rasterize_patreon),
+    "telegram": (_TELEGRAM_SVG_PATH, _TELEGRAM_PNG_PATH, _rasterize_telegram),
+    "youtube": (_YOUTUBE_SVG_PATH, _YOUTUBE_PNG_PATH, _rasterize_youtube),
+}
+
+
+def _ensure_icon_png(brand: str) -> Path:
+    """Return path to a rasterised PNG icon for the given brand."""
+    svg_path, png_path, rasterizer = _BRAND_RASTERIZERS[brand]
+    if png_path.exists():
+        return png_path
+    # Try cairosvg first
+    if svg_path.exists():
+        try:
+            import cairosvg  # type: ignore[import-untyped]
+            cairosvg.svg2png(url=str(svg_path), write_to=str(png_path),
+                             output_width=256, output_height=256)
+            logger.info("Converted %s SVG -> PNG via cairosvg", brand)
+            return png_path
+        except Exception:
+            pass
+    # Pillow fallback
     try:
-        import cairosvg  # type: ignore[import-untyped]
-        cairosvg.svg2png(
-            url=str(_PATREON_SVG_PATH),
-            write_to=str(_PATREON_PNG_PATH),
-            output_width=256,
-            output_height=256,
-        )
-        logger.info("Converted patreon SVG -> PNG via cairosvg")
-        return _PATREON_PNG_PATH
-    except Exception:
-        pass
-
-    # Fallback: rasterise the known SVG shapes with Pillow
-    try:
-        from PIL import Image, ImageDraw  # type: ignore[import-untyped]
-
-        size = 256
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-
-        # Patreon logo: circle + rectangle (matches the SVG)
-        scale = size / 64.0
-        # Circle: cx=38, cy=20, r=14
-        cx, cy, r = 38 * scale, 20 * scale, 14 * scale
-        draw.ellipse(
-            [cx - r, cy - r, cx + r, cy + r],
-            fill=(255, 66, 77, 255),
-        )
-        # Rect: x=4, y=4, width=12, height=56, rx=4
-        rx = 4 * scale
-        x1, y1 = 4 * scale, 4 * scale
-        x2, y2 = (4 + 12) * scale, (4 + 56) * scale
-        draw.rounded_rectangle([x1, y1, x2, y2], radius=rx, fill=(255, 66, 77, 255))
-
-        img.save(str(_PATREON_PNG_PATH), "PNG")
-        logger.info("Converted patreon SVG -> PNG via Pillow rasterisation")
-        return _PATREON_PNG_PATH
+        rasterizer(png_path)
+        logger.info("Rasterised %s icon via Pillow", brand)
+        return png_path
     except Exception as exc:
-        logger.warning("Failed to convert patreon SVG to PNG: %s", exc)
-        return _PATREON_SVG_PATH  # watermark.py will try Image.open on SVG
+        logger.warning("Failed to rasterise %s icon: %s", brand, exc)
+        return svg_path
 
 
-PATREON_ICON_PATH: Path = _ensure_patreon_png()
+PATREON_ICON_PATH: Path = _ensure_icon_png("patreon")
+TELEGRAM_ICON_PATH: Path = _ensure_icon_png("telegram")
+YOUTUBE_ICON_PATH: Path = _ensure_icon_png("youtube")
+
+# Map brand → icon path for watermark renderer
+BRAND_ICON_PATHS: dict[str, Path] = {
+    "patreon": PATREON_ICON_PATH,
+    "telegram": TELEGRAM_ICON_PATH,
+    "youtube": YOUTUBE_ICON_PATH,
+}
 
 # ---------------------------------------------------------------------------
 # Ensure directories exist on import

@@ -3,6 +3,11 @@
  *
  * Wires together all modules: api, ui, settings, upload, preview.
  * Handles keyboard shortcuts and top-level orchestration.
+ *
+ * Fast Manual Mode shortcuts:
+ *   ← / →         Navigate images
+ *   Shift+→        Copy current position to next image, then navigate
+ *   Mouse Wheel    Resize watermark (when drag-mode is active on overlay)
  */
 
 (async () => {
@@ -19,12 +24,14 @@
   window.__ninyra.getEmbedInvisible = () => embedInvisible;
   window.__ninyra.getSettings = () => settings.getCurrent();
   window.__ninyra.getUpload = () => upload;
+  window.__ninyra.copyPosAndGoNext = copyPosAndGoNext;
 
   // ── Initialize all modules ────────────────────────────────────────────
   ui.init();
   settings.init(onSettingsChanged);
   upload.init(onImagesChanged);
-  preview.init(onPositionChange);
+  // Pass positionChange AND sizeChange callbacks
+  preview.init(onPositionChange, onSizeChange);
 
   // ── Health check polling ──────────────────────────────────────────────
   async function checkHealth() {
@@ -43,12 +50,8 @@
   async function loadFonts() {
     try {
       const res = await api.listFonts();
-      if (res.success) {
-        settings.populateFonts(res.data.fonts);
-      }
-    } catch {
-      // Non-critical
-    }
+      if (res.success) settings.populateFonts(res.data.fonts);
+    } catch { /* Non-critical */ }
   }
 
   if (backendOnline) await loadFonts();
@@ -57,20 +60,16 @@
   async function loadPresets() {
     try {
       const res = await api.getPresets();
-      if (res.success) {
-        _renderPresetDropdown(res.data.presets);
-      }
-    } catch {
-      // Non-critical
-    }
+      if (res.success) _renderPresetDropdown(res.data.presets);
+    } catch { /* Non-critical */ }
   }
 
   if (backendOnline) await loadPresets();
 
   // ── Callbacks ─────────────────────────────────────────────────────────
 
-  function onSettingsChanged(newSettings) {
-    // Settings changed (not file uploads) — no API call until confirmation
+  function onSettingsChanged(_newSettings) {
+    // Settings changed — no auto-preview (wait for user to click Process)
   }
 
   function onImagesChanged(images) {
@@ -79,14 +78,11 @@
 
     const btnText = ui.getEl('process-btn-text');
     if (btnText) {
-      if (images.length === 1) {
-        btnText.textContent = 'Apply Watermark';
-      } else {
-        btnText.textContent = `Process ${images.length} Images`;
-      }
+      btnText.textContent = images.length === 1
+        ? 'Apply Watermark'
+        : `Process ${images.length} Images`;
     }
 
-    // Run face detection on upload if enabled
     if (faceDetectEnabled && images.length > 0) {
       _runFaceDetection(images[images.length - 1]);
     }
@@ -94,8 +90,35 @@
 
   function onPositionChange(normX, normY) {
     settings.update({ manual_x: normX, manual_y: normY });
-    // Trigger a preview API call on drag end
-    _triggerPreview();
+    _triggerPreviewForCurrent();
+  }
+
+  /**
+   * Called by mouse-wheel on the drag overlay.
+   * delta is +/- 0.01 (fraction).
+   */
+  function onSizeChange(delta) {
+    const cur = settings.getCurrent();
+    const currentPct = cur.custom_size_pct != null ? cur.custom_size_pct : 0.12;
+    const newPct = Math.max(0.03, Math.min(0.40, currentPct + delta));
+    settings.update({ custom_size_pct: newPct });
+    // Re-render current image with new size
+    _triggerPreviewForCurrent();
+  }
+
+  /**
+   * Copy current manual_x / manual_y to next image's preview, then navigate.
+   */
+  function copyPosAndGoNext() {
+    const cur = settings.getCurrent();
+    if (cur.manual_x == null || cur.manual_y == null) {
+      ui.showToast('Set a manual position first (enable Drag & click the image)', 'error');
+      return;
+    }
+    // Navigate to next (preview.showNext updates selectedIndex)
+    preview.showNext();
+    // Trigger a preview for the newly selected image with the same position
+    _triggerPreviewForCurrent();
   }
 
   // ── Process all images ────────────────────────────────────────────────
@@ -112,7 +135,6 @@
     const results = [];
 
     try {
-      // Process images in parallel batches of 4 for speed
       const BATCH_SIZE = 4;
       let completed = 0;
 
@@ -171,13 +193,20 @@
   }
 
   /**
-   * Trigger a single preview (used by drag-end).
+   * Trigger a preview for the currently selected image in preview module.
    */
-  async function _triggerPreview() {
+  async function _triggerPreviewForCurrent() {
     const images = upload.getImages();
     if (images.length === 0 || !backendOnline) return;
 
-    const img = images[0];
+    const idx = preview.getSelectedIndex();
+    const total = preview.getTotal();
+    // Map preview index back to upload image if possible
+    // In single-image mode index 0 = images[0]; in batch mode same index
+    const imgIndex = Math.min(idx, images.length - 1);
+    const img = images[imgIndex];
+    if (!img) return;
+
     const currentSettings = settings.getCurrent();
     const facesData = upload.getCachedFaces(img.id);
     const faceBboxes = facesData ? facesData.faces : null;
@@ -193,15 +222,17 @@
 
       if (res.success) {
         const mime = preview.getMimeForFilename(img.name);
-        preview.setResults([{
+        const updatedItem = {
           id: img.id,
           name: img.name,
+          originalBase64: img.base64,
           originalPreview: img.preview,
           resultBase64: res.data.result,
           resultPreview: `data:${mime};base64,${res.data.result}`,
           zoneUsed: res.data.zone_used,
           zoneScore: res.data.zone_score,
-        }]);
+        };
+        preview.updateResult(idx, updatedItem);
       }
     } catch (err) {
       ui.showToast(err.message || 'Preview update failed.', 'error');
@@ -225,17 +256,8 @@
         }
 
         if (!res.data.mediapipe_available) {
-          ui.showToast(
-            'Install mediapipe for AI zone detection: pip install mediapipe',
-            'error'
-          );
+          ui.showToast('Install mediapipe for AI zone detection: pip install mediapipe', 'error');
         }
-
-        console.log(
-          'Face detection:',
-          res.data.faces.length, 'faces found.',
-          'Confidences:', res.data.faces.map(f => f.confidence.toFixed(3))
-        );
       }
     } catch (err) {
       console.error('Face detection failed:', err);
@@ -261,9 +283,7 @@
     dropdown.querySelectorAll('[data-preset]').forEach(btn => {
       btn.addEventListener('click', () => {
         const preset = presets[btn.dataset.preset];
-        if (preset) {
-          settings.update(preset);
-        }
+        if (preset) settings.update(preset);
         dropdown.hidden = true;
       });
     });
@@ -271,7 +291,6 @@
 
   // ── Bind top-level actions ────────────────────────────────────────────
 
-  // Process button
   document.querySelector('[data-action="process"]')
     ?.addEventListener('click', processAll);
 
@@ -331,14 +350,53 @@
       e.target.value = '';
     });
 
-  // Drag mode toggle
-  ui.getEl('drag-mode-toggle')?.addEventListener('change', (e) => {
+  // Position manual override toggle
+  const dragToggle = ui.getEl('drag-mode-toggle');
+
+  function setManualPositioning(enabled) {
+    if (dragToggle) dragToggle.checked = enabled;
+    preview.setDragEnabled(enabled);
+  }
+
+  dragToggle?.addEventListener('change', (e) => {
     preview.setDragEnabled(e.target.checked);
     if (!e.target.checked) {
       settings.update({ manual_x: null, manual_y: null });
+      _triggerPreviewForCurrent();
     }
   });
 
+  // 9-cell grid position
+  document.querySelectorAll('.pos-cell').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setManualPositioning(true);
+      const px = Number(btn.dataset.px);
+      const py = Number(btn.dataset.py);
+      onPositionChange(px, py);
+    });
+  });
+
+  // XY inputs
+  const posXInput = ui.getEl('pos-x-input');
+  const posYInput = ui.getEl('pos-y-input');
+
+  function handleXYChange() {
+    if (!posXInput || !posYInput) return;
+    const x = Math.max(0, Math.min(100, Number(posXInput.value))) / 100;
+    const y = Math.max(0, Math.min(100, Number(posYInput.value))) / 100;
+    setManualPositioning(true);
+    onPositionChange(x, y);
+  }
+
+  if (posXInput) posXInput.addEventListener('change', handleXYChange);
+  if (posYInput) posYInput.addEventListener('change', handleXYChange);
+
+  // Position reset
+  document.querySelector('[data-action="reset-pos"]')?.addEventListener('click', () => {
+    setManualPositioning(false);
+    settings.update({ manual_x: null, manual_y: null });
+    _triggerPreviewForCurrent();
+  });
   // Snap to grid toggle
   ui.getEl('snap-grid-toggle')?.addEventListener('change', (e) => {
     preview.setSnapToGrid(e.target.checked);
@@ -348,11 +406,8 @@
   ui.getEl('face-detect-toggle')?.addEventListener('change', (e) => {
     faceDetectEnabled = e.target.checked;
     if (faceDetectEnabled) {
-      const images = upload.getImages();
-      images.forEach(img => {
-        if (!upload.getCachedFaces(img.id)) {
-          _runFaceDetection(img);
-        }
+      upload.getImages().forEach(img => {
+        if (!upload.getCachedFaces(img.id)) _runFaceDetection(img);
       });
     }
   });
@@ -364,9 +419,7 @@
       const images = upload.getImages();
       if (images.length > 0) {
         const cached = upload.getCachedFaces(images[0].id);
-        if (cached && cached.exclusionZones) {
-          preview.showFaceZones(cached.exclusionZones);
-        }
+        if (cached && cached.exclusionZones) preview.showFaceZones(cached.exclusionZones);
       }
     } else {
       preview.clearFaceZones();
@@ -401,21 +454,16 @@
       }
     });
 
-  // Preset name input — Enter key
   ui.getEl('preset-name-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      document.querySelector('[data-action="save-preset"]')?.click();
-    }
+    if (e.key === 'Enter') document.querySelector('[data-action="save-preset"]')?.click();
   });
 
-  // Preset dropdown toggle
   document.querySelector('[data-action="toggle-presets"]')
     ?.addEventListener('click', () => {
       const dd = ui.getEl('preset-dropdown');
       if (dd) dd.hidden = !dd.hidden;
     });
 
-  // Shortcuts toggle
   document.querySelector('[data-action="toggle-shortcuts"]')
     ?.addEventListener('click', () => {
       const list = ui.getEl('shortcuts-list');
@@ -425,6 +473,10 @@
   // ── Keyboard shortcuts ────────────────────────────────────────────────
 
   document.addEventListener('keydown', (e) => {
+    // Don't fire when typing in an input
+    const tag = document.activeElement?.tagName?.toLowerCase();
+    const inInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+
     // Ctrl+O — open file picker
     if (e.ctrlKey && e.key === 'o') {
       e.preventDefault();
@@ -449,6 +501,27 @@
       settings.redo();
     }
 
+    // ── Fast Manual Mode navigation ──────────────────────────────────
+    if (!inInput) {
+      // ← previous image
+      if (e.key === 'ArrowLeft' && !e.ctrlKey) {
+        e.preventDefault();
+        preview.showPrev();
+      }
+
+      // Shift+→ — copy position to next, then navigate
+      if (e.key === 'ArrowRight' && !e.ctrlKey && e.shiftKey) {
+        e.preventDefault();
+        copyPosAndGoNext();
+      }
+
+      // → next image (no shift)
+      if (e.key === 'ArrowRight' && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        preview.showNext();
+      }
+    }
+
     // Escape — close lightbox / dropdowns
     if (e.key === 'Escape') {
       ui.hideLightbox();
@@ -457,7 +530,7 @@
     }
 
     // ? — toggle shortcuts
-    if (e.key === '?' && !e.ctrlKey) {
+    if (e.key === '?' && !e.ctrlKey && !inInput) {
       const list = ui.getEl('shortcuts-list');
       if (list) list.hidden = !list.hidden;
     }

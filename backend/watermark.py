@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 from backend.config import (
     PATREON_RED,
     PATREON_ICON_PATH,
+    BRAND_ICON_PATHS,
     SIZE_MULTIPLIERS,
     ZONE_NAMES,
 )
@@ -33,32 +34,47 @@ from backend.utils import image_to_base64, base64_to_image, format_for_filename
 logger = logging.getLogger("ninyrawatermark.watermark")
 
 
-def _create_patreon_icon(size: int) -> Image.Image:
-    """Create a Patreon-style icon at the given size."""
-    if PATREON_ICON_PATH.exists():
+import re
+
+_BRAND_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("telegram", re.compile(r"(t\.me|telegram\.me|telegram\.org)", re.I)),
+    ("youtube", re.compile(r"(youtube\.com|youtu\.be)", re.I)),
+    # patreon is the default fallback
+]
+
+
+def _detect_brand(text: str) -> str:
+    """Return brand name ('telegram'|'youtube'|'patreon') from watermark text."""
+    for brand, pattern in _BRAND_PATTERNS:
+        if pattern.search(text):
+            return brand
+    return "patreon"
+
+
+def _create_brand_icon(brand: str, size: int) -> Image.Image:
+    """Load (and cache) the brand icon at the given size."""
+    icon_path = BRAND_ICON_PATHS.get(brand, PATREON_ICON_PATH)
+    if icon_path.exists():
         try:
-            icon = Image.open(PATREON_ICON_PATH).convert("RGBA")
+            icon = Image.open(icon_path).convert("RGBA")
             icon = icon.resize((size, size), Image.Resampling.LANCZOS)
             return icon
         except Exception as exc:
-            logger.warning("Failed to load patreon icon: %s", exc)
+            logger.warning("Failed to load %s icon: %s", brand, exc)
 
-    # Generate a simple 'P' circle icon as fallback
+    # Fallback: coloured circle with first letter
     icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(icon)
-    margin = 1
-    draw.ellipse(
-        [margin, margin, size - margin, size - margin],
-        fill=(*PATREON_RED, 255),
-    )
+    colours = {"telegram": (41, 182, 246, 255), "youtube": (255, 0, 0, 255)}
+    fill = colours.get(brand, (*PATREON_RED, 255))
+    draw.ellipse([1, 1, size - 1, size - 1], fill=fill)
+    letter = brand[0].upper()
     font_size = int(size * 0.55)
     font = get_font(None, font_size)
-    bbox = draw.textbbox((0, 0), "P", font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    text_x = (size - text_w) // 2
-    text_y = (size - text_h) // 2 - bbox[1]
-    draw.text((text_x, text_y), "P", fill=(255, 255, 255, 255), font=font)
+    bbox = draw.textbbox((0, 0), letter, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((size - tw) // 2, (size - th) // 2 - bbox[1]),
+              letter, fill=(255, 255, 255, 255), font=font)
     return icon
 
 
@@ -132,7 +148,8 @@ def _render_style_icon_text(
     wm_img = Image.new("RGBA", (wm_w, wm_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(wm_img)
 
-    icon = _create_patreon_icon(icon_size)
+    brand = _detect_brand(text)
+    icon = _create_brand_icon(brand, icon_size)
     icon_y = (wm_h - icon_size) // 2
     wm_img.paste(icon, (4, icon_y), icon)
 
@@ -189,7 +206,8 @@ def _render_style_branded_block(
         fill=bg_color,
     )
 
-    icon = _create_patreon_icon(icon_size)
+    brand = _detect_brand(text)
+    icon = _create_brand_icon(brand, icon_size)
     icon_x = pad_w
     icon_y = (wm_h - icon_size) // 2
     wm_img.paste(icon, (icon_x, icon_y), icon)

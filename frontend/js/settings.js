@@ -274,6 +274,30 @@ const settings = (() => {
         ? 'var(--color-accent)' : '';
     }
 
+    // Position Grid + XY
+    const isManual = current.manual_x !== null && current.manual_y !== null;
+
+    document.querySelectorAll('.pos-cell').forEach(btn => {
+      if (!isManual) {
+        btn.classList.remove('pos-cell--active');
+        return;
+      }
+      const px = Number(btn.dataset.px);
+      const py = Number(btn.dataset.py);
+      const match = Math.abs(current.manual_x - px) < 0.01 && Math.abs(current.manual_y - py) < 0.01;
+      btn.classList.toggle('pos-cell--active', match);
+    });
+
+    const inputX = document.querySelector('[data-target="pos-x-input"]');
+    const inputY = document.querySelector('[data-target="pos-y-input"]');
+
+    if (inputX && inputX !== document.activeElement) {
+      inputX.value = current.manual_x !== null ? Math.round(current.manual_x * 100) : '';
+    }
+    if (inputY && inputY !== document.activeElement) {
+      inputY.value = current.manual_y !== null ? Math.round(current.manual_y * 100) : '';
+    }
+
     // Padding
     const paddingInput = document.querySelector('[data-setting="padding"]');
     const paddingValue = ui.getEl('padding-value');
